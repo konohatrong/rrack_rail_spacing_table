@@ -22,6 +22,32 @@ st.title("🏗️ Solar Rail Design & Analysis (AS/NZS 1170.2:2021)")
 st.markdown("**Structural Engineer & Software Developer:** Aluminum Rail Analysis for Solar PV")
 
 # ==========================================
+# 0. DATA LOADING FUNCTION (GitHub/Excel)
+# ==========================================
+@st.cache_data
+def load_rail_data():
+    """
+    Load rail data from a CSV/Excel file hosted on GitHub or Local.
+    Change the URL below to your raw GitHub file URL.
+    """
+    # --- วิธีการใช้งานจริง ---
+    # url = "https://raw.githubusercontent.com/username/repo/main/rail_data.csv"
+    # df = pd.read_csv(url)
+    # return df
+    
+    # --- Mockup Data (ตัวอย่างข้อมูลสมมติ) ---
+    data = {
+        'Brand': ['Generic', 'SolarRail-X', 'Alu-Pro', 'Eco-Mount'],
+        'Model': ['Standard', 'SR-40Heavy', 'AP-60', 'EM-Light'],
+        'Breaking Load (kN)': [5.0, 7.5, 6.2, 3.8],
+        'Test Span (m)': [1.0, 1.2, 1.0, 0.8]
+    }
+    return pd.DataFrame(data)
+
+# Load data once
+df_rails = load_rail_data()
+
+# ==========================================
 # SIDEBAR INPUTS
 # ==========================================
 
@@ -34,7 +60,6 @@ region = st.sidebar.selectbox("Wind Region", region_list, index=1)
 imp_level = st.sidebar.selectbox("Importance Level (IL)", [1, 2, 3, 4], index=1)
 design_life = st.sidebar.selectbox("Design Working Life (Years)", [5, 25, 50, 100], index=2)
 
-# Calculate Vr based on IL and Life
 ret_period = wind_load.get_return_period(imp_level, design_life)
 vr = wind_load.get_vr_from_ari(region, ret_period)
 
@@ -70,10 +95,41 @@ st.sidebar.subheader("Coefficients")
 ka = st.sidebar.number_input("Area Reduction Factor (Ka)", value=1.0)
 kc = st.sidebar.number_input("Comb. Factor (Kc)", value=1.0)
 
-# --- STRUCTURAL ---
-st.sidebar.header("4. Structural Test (ASTM E290)")
-breaking_load = st.sidebar.number_input("Breaking Load (kN)", value=5.0)
-test_span = st.sidebar.number_input("Test Span (m)", value=1.0)
+# --- STRUCTURAL (UPDATED: DATABASE SELECTOR) ---
+st.sidebar.header("4. Structural Test Data")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Select Rail from Database**")
+
+# Create list for dropdown
+rail_options = ["Custom Input"] + [f"{row['Brand']} - {row['Model']}" for i, row in df_rails.iterrows()]
+selected_rail_str = st.sidebar.selectbox("Choose Rail Model:", rail_options)
+
+# Logic to handle selection
+if selected_rail_str != "Custom Input":
+    # Parse selection
+    sel_brand, sel_model = selected_rail_str.split(" - ")
+    rail_data = df_rails[(df_rails['Brand'] == sel_brand) & (df_rails['Model'] == sel_model)].iloc[0]
+    
+    def_brand = rail_data['Brand']
+    def_model = rail_data['Model']
+    def_bk_load = float(rail_data['Breaking Load (kN)'])
+    def_span = float(rail_data['Test Span (m)'])
+    input_disabled = True # Lock inputs if selected from DB (Optional, set False to allow edit)
+else:
+    def_brand = "Custom"
+    def_model = "-"
+    def_bk_load = 5.0
+    def_span = 1.0
+    input_disabled = False
+
+# Input Fields
+st.sidebar.markdown("**Rail Properties:**")
+rail_brand = st.sidebar.text_input("Brand", value=def_brand, disabled=input_disabled)
+rail_model = st.sidebar.text_input("Model No.", value=def_model, disabled=input_disabled)
+
+breaking_load = st.sidebar.number_input("Breaking Load (kN)", value=def_bk_load, format="%.2f", disabled=input_disabled)
+test_span = st.sidebar.number_input("Test Span (m)", value=def_span, format="%.2f", disabled=input_disabled)
 safety_factor = st.sidebar.number_input("Safety Factor (Mn)", value=1.1)
 num_spans = st.sidebar.slider("Number of Continuous Spans", 1, 5, 2)
 
@@ -87,9 +143,9 @@ def plot_building_diagram(b, d, r_type):
     ax.text(b/2, -d*0.15, f"Width b = {b}m", ha='center', color='blue', fontweight='bold', family='sans-serif')
     ax.text(-b*0.15, d/2, f"Depth d = {d}m", ha='right', va='center', rotation=90, color='green', fontweight='bold', family='sans-serif')
     ax.arrow(b/2, d+d*0.3, 0, -d*0.2, head_width=b*0.05, head_length=d*0.05, fc='red', ec='red')
-    ax.text(b/2, d+d*0.35, "Wind 0° (Normal)\n(Use h/d)", ha='center', color='red', fontsize=8, family='sans-serif')
+    ax.text(b/2, d+d*0.35, "Wind 0° (Normal)", ha='center', color='red', fontsize=8, family='sans-serif')
     ax.arrow(-b*0.3, d/2, b*0.2, 0, head_width=d*0.05, head_length=b*0.05, fc='orange', ec='orange')
-    ax.text(-b*0.35, d/2, "Wind 90° (Parallel)\n(Use h/b)", ha='center', va='center', rotation=90, color='orange', fontsize=8, family='sans-serif')
+    ax.text(-b*0.35, d/2, "Wind 90° (Parallel)", ha='center', va='center', rotation=90, color='orange', fontsize=8, family='sans-serif')
     if "Gable" in r_type:
         ax.plot([0, b], [d/2, d/2], color='purple', linestyle='-.', linewidth=2.5)
         ax.text(b*0.02, d/2 + d*0.03, "RIDGE LINE", color='purple', fontsize=9, fontweight='bold', ha='left')
@@ -100,29 +156,68 @@ def plot_building_diagram(b, d, r_type):
     return fig
 
 def plot_panel_load_diagram(pw, pd, orient, trib_w):
-    fig, ax = plt.subplots(figsize=(4, 5))
+    """
+    Fixed diagram to show Tributary Width correctly.
+    """
+    fig, ax = plt.subplots(figsize=(5, 5))
+    
+    # 1. Draw Panel
     panel = patches.Rectangle((0, 0), pw, pd, linewidth=2, edgecolor='black', facecolor='white', label='Panel')
     ax.add_patch(panel)
+    
+    # 2. Draw Rails & Trib Area
     if orient == 'width':
+        # Rails run horizontal (parallel to width)
+        # Trib width is vertical distance (Depth / 2)
         rail_y1, rail_y2 = pd * 0.25, pd * 0.75
+        
+        # Rails
         ax.axhline(rail_y1, color='blue', linewidth=3, linestyle='--', label='Rail')
         ax.axhline(rail_y2, color='blue', linewidth=3, linestyle='--')
-        rect_trib = patches.Rectangle((0, 0), pw, pd/2, linewidth=0, facecolor='red', alpha=0.3, label='Trib. Area')
+        
+        # Trib Area (Shaded) - for one rail (e.g., bottom rail)
+        # Covers from 0 to pd/2
+        rect_trib = patches.Rectangle((0, 0), pw, pd/2, linewidth=0, facecolor='red', alpha=0.2, label='Trib. Area')
         ax.add_patch(rect_trib)
-        ax.annotate(f"Trib = {trib_w:.3f} m", xy=(pw+0.1, pd/4), xytext=(pw+0.5, pd/4), arrowprops=dict(arrowstyle='<->'), ha='center')
+        
+        # Dimension Line (Vertical)
+        # Place it to the right of the panel
+        dim_x = pw + 0.15
+        ax.annotate('', xy=(dim_x, 0), xytext=(dim_x, pd/2),
+                    arrowprops=dict(arrowstyle='<->', color='red', lw=1.5))
+        ax.text(dim_x + 0.05, pd/4, f"Trib = {trib_w:.3f} m", color='red', rotation=90, va='center')
+        
     else:
+        # Rails run vertical (parallel to depth)
+        # Trib width is horizontal distance (Width / 2)
         rail_x1, rail_x2 = pw * 0.25, pw * 0.75
+        
+        # Rails
         ax.axvline(rail_x1, color='blue', linewidth=3, linestyle='--', label='Rail')
         ax.axvline(rail_x2, color='blue', linewidth=3, linestyle='--')
-        rect_trib = patches.Rectangle((0, 0), pw/2, pd, linewidth=0, facecolor='red', alpha=0.3, label='Trib. Area')
+        
+        # Trib Area (Shaded) - for one rail (e.g., left rail)
+        # Covers from 0 to pw/2
+        rect_trib = patches.Rectangle((0, 0), pw/2, pd, linewidth=0, facecolor='red', alpha=0.2, label='Trib. Area')
         ax.add_patch(rect_trib)
-        ax.annotate(f"Trib = {trib_w:.3f} m", xy=(pw/4, pd+0.1), xytext=(pw/4, pd+0.5), arrowprops=dict(arrowstyle='<->'), ha='center')
-    ax.set_xlim(-0.5, pw+1.0)
-    ax.set_ylim(-0.5, pd+1.0)
+        
+        # Dimension Line (Horizontal)
+        # Place it above the panel
+        dim_y = pd + 0.15
+        ax.annotate('', xy=(0, dim_y), xytext=(pw/2, dim_y),
+                    arrowprops=dict(arrowstyle='<->', color='red', lw=1.5))
+        ax.text(pw/4, dim_y + 0.05, f"Trib = {trib_w:.3f} m", color='red', ha='center')
+
+    # Panel Dimensions
+    ax.text(pw/2, -0.1, f"Width = {pw}m", ha='center')
+    ax.text(-0.1, pd/2, f"Depth = {pd}m", va='center', rotation=90)
+    
+    ax.set_xlim(-0.3, pw + 0.5)
+    ax.set_ylim(-0.3, pd + 0.5)
     ax.set_aspect('equal')
-    ax.legend(loc='upper right', fontsize='small')
+    ax.legend(loc='lower right', fontsize='small')
     ax.axis('off')
-    ax.set_title("Tributary Area Concept", fontsize=10)
+    ax.set_title("Tributary Width Concept", fontsize=10)
     return fig
 
 def plot_fem_diagrams_annotated(analysis_res, zone_name):
@@ -195,19 +290,18 @@ if st.button("🚀 Run Analysis for All Zones"):
     Mn = structural.calculate_Mn(breaking_load, test_span, safety_factor)
     trib_width = wind_load.calculate_tributary_width(panel_w, panel_d, orient_key)
     
-    # 1. Wind Analysis (0 vs 90 deg)
+    # 1. Wind Analysis
     ratio_0 = b_height / b_depth
     res_0 = wind_load.solve_cpe_for_ratio(roof_angle, roof_type, ratio_0)
     ratio_90 = b_height / b_width
     res_90 = wind_load.solve_cpe_for_ratio(roof_angle, roof_type, ratio_90)
     
-    # Logic for Worst Case Selection
     if res_0['cpe'] < res_90['cpe']:
         base_cpe, governing_case = res_0['cpe'], f"Wind 0° (Normal) | h/d={ratio_0:.2f}"
-        direction_note = "Using Cpe from Wind 0° as it is more negative (higher suction)."
+        direction_note = "Using Cpe from Wind 0° as it is more negative."
     else:
         base_cpe, governing_case = res_90['cpe'], f"Wind 90° (Side) | h/b={ratio_90:.2f}"
-        direction_note = "Using Cpe from Wind 90° as it is more negative (higher suction)."
+        direction_note = "Using Cpe from Wind 90° as it is more negative."
 
     # 2. Iterate Zones
     zones = [
@@ -261,8 +355,8 @@ if st.button("🚀 Run Analysis for All Zones"):
     st.subheader("1. Input Summary & Geometry")
     col_in1, col_in2 = st.columns([1, 1])
     with col_in1:
+        st.write(f"- **Rail:** {rail_brand} ({rail_model})")
         st.write(f"- **Region:** {region} (Vr={vr} m/s)")
-        st.write(f"- **Prob:** IL-{imp_level}, Life {design_life}y (1/{ret_period})")
         st.write(f"- **V_des:** {v_des:.2f} m/s")
         st.write(f"- **Geometry:** {b_width}x{b_depth}x{b_height}m ({roof_type})")
         st.write(f"- **Capacity (Mn):** {Mn:.3f} kNm")
@@ -271,23 +365,16 @@ if st.button("🚀 Run Analysis for All Zones"):
 
     st.divider()
 
-    # --- 2. WIND DIRECTION ANALYSIS (DETAILED) ---
-    st.subheader("2. Wind Direction Analysis (Cpe Selection)")
+    # --- 2. WIND DIRECTION ANALYSIS ---
+    st.subheader("2. Wind Direction Analysis (Cpe)")
     col_wd1, col_wd2 = st.columns([1, 1])
-    
     with col_wd1:
-        st.markdown("#### Comparison Table")
-        df_wind = pd.DataFrame([
-            {"Direction": "Wind 0° (Normal)", "Ratio": f"h/d={ratio_0:.2f}", "Cpe": res_0['cpe'], "Note": res_0['note']},
-            {"Direction": "Wind 90° (Parallel)", "Ratio": f"h/b={ratio_90:.2f}", "Cpe": res_90['cpe'], "Note": res_90['note']}
-        ])
-        st.table(df_wind)
-        st.info(f"**Governing Case:** {governing_case}\n\n{direction_note}")
-
+        st.markdown("#### Comparison")
+        st.write(f"- **Wind 0° (h/d={ratio_0:.2f}):** Cpe = {res_0['cpe']:.2f}")
+        st.write(f"- **Wind 90° (h/b={ratio_90:.2f}):** Cpe = {res_90['cpe']:.2f}")
+        st.info(f"**Governing:** {governing_case}")
     with col_wd2:
-        st.markdown("#### Tributary Width Calculation")
         st.pyplot(plot_panel_load_diagram(panel_w, panel_d, orient_key, trib_width))
-        st.caption(f"Tributary Width = {trib_width:.3f} m")
 
     st.divider()
 
@@ -306,7 +393,6 @@ if st.button("🚀 Run Analysis for All Zones"):
 
     # --- 4. CRITICAL CASE DETAILS ---
     st.subheader(f"4. Critical Case Analysis ({worst_case_res['zone']})")
-    
     col_crit1, col_crit2 = st.columns([1, 2])
     with col_crit1:
         st.markdown("### Design Actions")
@@ -314,7 +400,6 @@ if st.button("🚀 Run Analysis for All Zones"):
         st.metric("V* (Max Shear)", f"{np.max(np.abs(worst_case_res['fem']['shear'])):.2f} kN")
         st.metric("Max Reaction", f"{worst_case_res['reaction']:.2f} kN")
         st.caption(f"Occurs in **{worst_case_res['zone']}** at Max Span **{worst_case_res['span']:.2f} m**")
-        st.markdown(f"**Load =** {worst_case_res['load']:.3f} kN/m")
     
     with col_crit2:
         st.pyplot(plot_fem_diagrams_annotated(worst_case_res['fem'], worst_case_res['zone']))
@@ -332,35 +417,32 @@ if st.button("🚀 Run Analysis for All Zones"):
                           Standard: AS/NZS 1170.2:2021
 ================================================================================
 
-[1] PROJECT INPUTS & GEOMETRY
------------------------------
+[1] PROJECT INPUTS
+------------------
+   - Rail Model:                 {rail_brand} - {rail_model}
    - Region:                     {region}
    - Importance Level:           {imp_level} (Design Life: {design_life} years)
    - Annual Prob. Exceedance:    1/{ret_period}
    - Regional Wind Speed (Vr):   {vr} m/s
-   - Multipliers:                Md={md}, Ms={ms}, Mt={mt}, Mz,cat={mz_cat:.2f}
    - Design Wind Speed (Vdes):   {v_des:.2f} m/s
    
    - Building:                   {b_width}m (W) x {b_depth}m (D) x {b_height}m (H)
    - Roof:                       {roof_type}, {roof_angle} deg
+   
    - Rail Capacity (Mn):         {Mn:.3f} kNm
+     (Break Load: {breaking_load} kN, Test Span: {test_span} m)
 
-[2] WIND DIRECTION ANALYSIS (Cpe SELECTION)
--------------------------------------------
-   A. Wind 0 deg (Normal):
-      - Aspect Ratio h/d: {ratio_0:.2f}
-      - Cpe: {res_0['cpe']:.2f} ({res_0['note']})
+[2] WIND ANALYSIS DETAILS
+-------------------------
+   A. Direction Check
+      - Wind 0 deg (Normal):     Cpe = {res_0['cpe']:.2f} (h/d={ratio_0:.2f})
+      - Wind 90 deg (Parallel):  Cpe = {res_90['cpe']:.2f} (h/b={ratio_90:.2f})
+      >> GOVERNING CASE:         {governing_case}
 
-   B. Wind 90 deg (Parallel):
-      - Aspect Ratio h/b: {ratio_90:.2f}
-      - Cpe: {res_90['cpe']:.2f} ({res_90['note']})
-
-   >> GOVERNING CASE: {governing_case}
-   >> Direction Note: {direction_note}
-
-   - Tributary Width: {trib_width:.3f} m
-   - Area Reduction (Ka): {ka}
-   - Combination Factor (Kc): {kc}
+   B. Load Parameters
+      - Tributary Width:         {trib_width:.3f} m
+      - Area Reduction (Ka):     {ka}
+      - Combination Factor (Kc): {kc}
 
 [3] ZONE ANALYSIS SUMMARY (RA1-RA4)
 -----------------------------------
@@ -378,11 +460,9 @@ if st.button("🚀 Run Analysis for All Zones"):
    [Design Check]
    M* ({worst_case_res['moment']:.3f}) < Mn ({Mn:.3f}) --> OK
 
-[5] VISUALIZATION GUIDE (ASCII)
--------------------------------
-   [Building Orientation & Ridge]
+[5] VISUALIZATION GUIDE
+-----------------------
 {ridge_art}
-
 ================================================================================
 Generated by Solar Rail App | Date: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
 ================================================================================
