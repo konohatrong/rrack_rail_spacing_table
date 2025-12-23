@@ -2,6 +2,28 @@ import pandas as pd
 import numpy as np
 import datetime
 
+# ==========================================
+# ASCII ART ASSETS
+# ==========================================
+def get_report_logo():
+    """
+    Returns the custom ASCII Art Logo from ascii-art.txt
+    """
+    return r"""
+3555555555537      14444445537            5957            7325464523   541      7352     735666451  12237      
+         266666666666657    309222225905          30002          3908652225693  983     1985    76865333342 733371   
+         266643333466664    3047     7605        1901981       79041            903    4067     891         723321      
+         266657    466663   3047      209         502 389      1803              903  3881      1091                     
+         322237   7466667   304       405       3067  405     402            9037405         4061                    
+         355555555466643    205     3983       7893   7803   198                906061           290951          
+         26666666666437     2000000047         605     3097  199                984002             7390093              
+         2666455466663      205   76091        2085552222905  760                983 4067               19047            
+         266657 75666657    205     3097     190444455555901  204               983  3905          7402            
+         266657  75666657   505      5097   7405         209   5047             983   75093              505            
+        266657    2666641  505       5087  3067          604   38093      753  983     7904   193      5047            
+         244457     3444451 285        4867 993            1993    159888889627  693       5991 72699889957
+    """
+
 def get_ascii_ridge_diagram(b, d, r_type):
     """Generates ASCII diagram for Building Orientation & Ridge Line"""
     if "Gable" in r_type:
@@ -11,9 +33,7 @@ def get_ascii_ridge_diagram(b, d, r_type):
                  v
       +-----------------------------+
       |      ROOF SIDE A            |
-      |                             |
       | - - - - RIDGE LINE - - - - -| ---> Wind 90 deg (Parallel)
-      |                             |
       |      ROOF SIDE B            |
       +-----------------------------+
       (Building: {b}m Width x {d}m Depth)
@@ -25,10 +45,7 @@ def get_ascii_ridge_diagram(b, d, r_type):
                  v
       +-----------------------------+
       |                             |
-      |                             |
       |      MONOSLOPE ROOF         |
-      |                             |
-      |                             |
       +-----------------------------+ ---> Wind 90 deg
       (Building: {b}m Width x {d}m Depth)
         """
@@ -79,6 +96,7 @@ def format_iteration_table(history, zone_name):
     
     rows = []
     for step in steps:
+        # Use .get() to safely access dictionary keys
         sp = step.get('span', 0.0)
         ms = step.get('m_star', 0.0)
         ut = step.get('util', 0.0)
@@ -91,8 +109,7 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
     """
     Main function to generate the detailed plain text report.
     """
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-
+    
     # 1. Format Summary Table (Clean Data)
     df_res = pd.DataFrame(zone_results)
     
@@ -108,7 +125,7 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
         float_format=lambda x: "{:.3f}".format(x) if isinstance(x, (float, np.floating)) else str(x)
     )
     
-    # 2. Generate Iteration Logs (Detailed 10 steps)
+    # 2. Generate Iteration Logs
     iteration_logs = ""
     for z in zone_results:
         # Check if history exists
@@ -116,17 +133,19 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
         iteration_logs += format_iteration_table(hist, z.get('Zone', 'Unknown'))
         iteration_logs += "\n"
 
-    # 3. Generate Visuals (ASCII Art Restored)
+    # 3. Generate Visuals
     ridge_art = get_ascii_ridge_diagram(inputs['b_width'], inputs['b_depth'], inputs['roof_type'])
-    
     zone_art = ""
     for z in zone_results:
         zone_art += f"\n   ZONE {z.get('Zone')} ({z.get('Description')}):\n"
         zone_art += get_ascii_art(z.get('Zone'))
 
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logo = get_report_logo()
+
     # --- Detailed Calculation breakdown ---
     step_vdes = f"""
-    1. Design Wind Speed (Vdes) Verification:
+    1. Design Wind Speed (Vdes) Calculation:
        Ref: AS/NZS 1170.2 Eq. 2.2
        Formula: V_des = Vr * Md * (Mz,cat * Ms * Mt)
        
@@ -143,7 +162,7 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
     """
 
     step_cpe = f"""
-    2. External Pressure Coefficient (Cpe) Selection:
+    2. External Pressure Coefficient (Cpe) Analysis:
        Ref: AS/NZS 1170.2 Section 5.3
        Roof Type: {inputs['roof_type']} (Angle: {inputs['roof_angle']} deg)
        
@@ -178,19 +197,27 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
        Logic: Incremental Span check (step 0.05m)
     """
 
+    # --- REPORT ASSEMBLY ---
     report_text = f"""
+{logo}
 ================================================================================
                     SOLAR RAIL STRUCTURAL CALCULATION REPORT
                           Standard: AS/NZS 1170.2:2021
 ================================================================================
-Generated Date: {current_time}
 
-[1] PROJECT INPUTS
-------------------
-   - Rail Model:     {inputs['rail_brand']} - {inputs['rail_model']}
-   - Region:         {inputs['region']} (Vr = {inputs['vr']} m/s)
-   - Importance:     Level {inputs['imp_level']} (1/{inputs['ret_period']} R.P.)
-   - Geometry:       {inputs['b_width']}m (W) x {inputs['b_depth']}m (D) x {inputs['b_height']}m (H)
+[0] PROJECT DETAILS
+-------------------
+   Project Name:      {inputs.get('project_name', '-')}
+   Location:          {inputs.get('project_location', '-')}
+   Engineer:          {inputs.get('engineer', '-')}
+   Generated Date:    {current_time}
+
+[1] TECHNICAL INPUTS
+--------------------
+   - Rail Model:      {inputs['rail_brand']} - {inputs['rail_model']}
+   - Region:          {inputs['region']} (Vr = {inputs['vr']} m/s)
+   - Probability:     Level {inputs['imp_level']} / Life {inputs['design_life']} yr (R=1/{inputs['ret_period']})
+   - Geometry:        {inputs['b_width']}m (W) x {inputs['b_depth']}m (D) x {inputs['b_height']}m (H)
 
 [2] WIND ANALYSIS DETAILS
 -------------------------
