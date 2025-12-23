@@ -65,31 +65,19 @@ def get_ascii_art(zone_code):
         """
     return ""
 
-def format_iteration_table(history, zone_name):
-    """Formats the last 10 steps of the iteration history."""
-    if not history: return ""
-    steps = history[-10:] if len(history) > 10 else history
-    header = f"   Detailed Iteration Log for {zone_name} (Last {len(steps)} Steps):"
-    table_header =  "   |  Span (m)  |  M* (kNm)  | Utilization |  Status  |"
-    divider =       "   |------------|------------|-------------|----------|"
-    rows = []
-    for step in steps:
-        rows.append(f"   |   {step['span']:.3f}    |   {step['m_star']:.3f}    |   {step['util']:.1f} %    |   {step['status']}   |")
-    return f"{header}\n{table_header}\n{divider}\n" + "\n".join(rows) + "\n"
-
 def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_res):
     """
     Main function to generate the detailed plain text report.
     """
     
-    # 1. Format Summary Table (Clean Data)
+    # 1. Format Summary Table
     df_res = pd.DataFrame(zone_results)
     
-    # --- FIX: Drop history column before creating text table ---
+    # Remove history column if exists
     if 'history' in df_res.columns:
         df_res = df_res.drop(columns=['history'])
         
-    # Add Utilization for summary table
+    # Add Utilization
     if 'Utilization' not in df_res.columns:
          df_res['Utilization'] = (df_res['M* (kNm)'] / struct_res['Mn']) * 100
 
@@ -99,14 +87,7 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
         float_format=lambda x: "{:.3f}".format(x) if isinstance(x, (float, np.floating)) else str(x)
     )
     
-    # 2. Generate Iteration Logs
-    iteration_logs = ""
-    for z in zone_results:
-        if 'history' in z:
-            iteration_logs += format_iteration_table(z['history'], z['Zone'])
-            iteration_logs += "\n"
-
-    # 3. Generate Visuals
+    # 2. Visuals
     ridge_art = get_ascii_ridge_diagram(inputs['b_width'], inputs['b_depth'], inputs['roof_type'])
     zone_art = ""
     for z in zone_results:
@@ -117,17 +98,53 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
     
     # --- Detailed Calculation breakdown ---
     step_vdes = f"""
-    Design Wind Speed (Vdes) Calculation:
-    Ref: AS/NZS 1170.2 Eq. 2.2
-    V_des = Vr * Md * (Mz,cat * Ms * Mt)
-    V_des = {inputs['vr']} * {inputs['md']} * ({inputs['mz_cat']:.2f} * {inputs['ms']} * {inputs['mt']})
-    V_des = {inputs['v_des']:.2f} m/s
+    1. Design Wind Speed (Vdes) Calculation:
+       Ref: AS/NZS 1170.2 Eq. 2.2
+       V_des = Vr * Md * (Mz,cat * Ms * Mt)
+       V_des = {inputs['vr']} * {inputs['md']} * ({inputs['mz_cat']:.2f} * {inputs['ms']} * {inputs['mt']})
+       V_des = {inputs['v_des']:.2f} m/s
+    """
+
+    # --- New Detailed Cpe Calculation ---
+    step_cpe = f"""
+    2. External Pressure Coefficient (Cpe) Analysis:
+       Ref: AS/NZS 1170.2 Section 5.3 (Roofs)
+       
+       [A] Roof Configuration:
+           - Type:  {inputs['roof_type']}
+           - Angle: {inputs['roof_angle']} degrees
+           
+       [B] Directional Evaluation:
+           (i)  Wind 0 deg (Transverse/Normal):
+                - Building Dimension h/d = {inputs['b_height']}/{inputs['b_depth']} = {wind_res['ratio_0']:.2f}
+                - Table Lookup/Interpolation -> Cpe = {wind_res['cpe_0']:.2f}
+                
+           (ii) Wind 90 deg (Longitudinal/Parallel):
+                - Building Dimension h/b = {inputs['b_height']}/{inputs['b_width']} = {wind_res['ratio_90']:.2f}
+                - Table Lookup/Interpolation -> Cpe = {wind_res['cpe_90']:.2f}
+                
+       [C] Selected Design Value:
+           >> Governing Direction: {wind_res['governing_case']}
+           >> Base Cpe used for design: {wind_res['cpe_base']:.2f} (Most critical suction)
+    """
+
+    step_load = f"""
+    3. Design Pressure & Line Load:
+       Formula: p = 0.5 * rho * Vdes^2 * Cfig * Cdyn
+       
+       Parameters:
+       - Tributary Width:        {wind_res['trib_width']:.3f} m
+       - Area Reduction (Ka):    {wind_res['ka']}
+       - Combination Factor (Kc):{wind_res['kc']}
+       
+       (Note: Cfig = Cpe * Ka * Kc * Kl * Kp)
     """
 
     step_optimization = f"""
-    Optimization Objective: Find Max Span (L) where M* <= Mn ({struct_res['Mn']:.3f} kNm)
-    Method: Finite Element Analysis (Matrix Stiffness Method)
-    Logic: Incremental Span check (step 0.05m)
+    4. Span Optimization (Iterative FEM)
+       Objective: Find Max Span (L) where M* <= Mn ({struct_res['Mn']:.3f} kNm)
+       Method: Finite Element Analysis (Matrix Stiffness Method)
+       Logic: Incremental Span check (step 0.05m)
     """
 
     report_text = f"""
@@ -137,30 +154,25 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 ================================================================================
 Generated Date: {current_time}
 
-[1] PROJECT INPUTS & WIND PARAMETERS
-------------------------------------
+[1] PROJECT INPUTS
+------------------
    - Rail Model:     {inputs['rail_brand']} - {inputs['rail_model']}
    - Region:         {inputs['region']} (Vr = {inputs['vr']} m/s)
    - Importance:     Level {inputs['imp_level']} (1/{inputs['ret_period']} R.P.)
-   {step_vdes}
+   - Geometry:       {inputs['b_width']}m (W) x {inputs['b_depth']}m (D) x {inputs['b_height']}m (H)
 
-[2] WIND DIRECTION ANALYSIS (Cpe)
----------------------------------
-   - Wind 0 deg:     Cpe = {wind_res['cpe_0']:.2f}
-   - Wind 90 deg:    Cpe = {wind_res['cpe_90']:.2f}
-   - Governing:      {wind_res['governing_case']}
-   - Trib. Width:    {wind_res['trib_width']:.3f} m
-
-[3] SPAN OPTIMIZATION LOGS (10 STEPS)
--------------------------------------
+[2] WIND ANALYSIS DETAILS
+-------------------------
+{step_vdes}
+{step_cpe}
+{step_load}
 {step_optimization}
-{iteration_logs}
 
-[4] ZONE ANALYSIS SUMMARY (ALL ZONES)
---------------------------------------
+[3] ZONE ANALYSIS SUMMARY (RA1-RA4)
+-----------------------------------
 {table_str}
 
-[5] CRITICAL CASE RESULTS ({critical_res['zone']})
+[4] CRITICAL CASE RESULTS ({critical_res['zone']})
 ----------------------------------------------------
    The worst-case structural demand occurs in Zone: {critical_res['zone']}
    
@@ -172,17 +184,43 @@ Generated Date: {current_time}
    [Structural Check]
    M* ({critical_res['moment']:.3f}) < Mn ({struct_res['Mn']:.3f}) --> PASS (OK)
 
-[6] LIMITATIONS & CONDITIONS
-----------------------------
-   1. Valid only for building height <= {inputs['b_height']} m.
-   2. Roof slope must match {inputs['roof_angle']} degrees.
-   3. Pull-out capacity of fasteners must be verified separately against Max Reaction.
-   4. Deflection checks (SLS) are not included in this ULS analysis.
-
-[7] VISUALIZATION GUIDE
+[5] VISUALIZATION GUIDE
 -----------------------
 {ridge_art}
 {zone_art}
+
+[6] LIMITATIONS & CONDITIONS OF USE (STRICT COMPLIANCE)
+-------------------------------------------------------
+   This analysis is valid ONLY when the following conditions are met:
+
+   1. DESIGN STANDARD:
+      - Calculations based on AS/NZS 1170.2:2021 (Wind Actions).
+      - AS/NZS 1170.0:2002 (General Principles) for probability factors.
+
+   2. ZONES CONSIDERED:
+      - The report explicitly covers Roof Zones: RA1 (General), RA2 (Edges), 
+        RA3 (Corners), and RA4 (Local Pressure). 
+      - Installation must respect the specific 'Max Span' for the zone it is placed in.
+
+   3. ROOF CONFIGURATION:
+      - Valid for Roof Type: {inputs['roof_type']}
+      - Valid for Roof Pitch: {inputs['roof_angle']} degrees (+/- 2 deg tolerance)
+      - Max Building Height: {inputs['b_height']} m
+
+   4. STRUCTURAL CONFIGURATION:
+      - Analysis assumes a Continuous Beam system with {inputs['num_spans']} spans.
+      - Minimum number of rail supports required: {inputs['num_spans'] + 1} supports.
+      - Single span installations are NOT covered by this specific calculation 
+        (unless Num Spans = 1 was selected).
+
+   5. EXCLUSIONS (ACTION REQUIRED):
+      - Fixing/Screw Capacity: The connection between the L-foot/Bracket and the 
+        roof purlin/rafter MUST be verified separately against the 'Max Reaction Force'.
+      - Rail Deflection: Serviceability limit state (L/200 etc.) is not checked.
+      - PV Clamping: Mid/End clamps holding the modules must be rated for the Design Pressure.
+
+================================================================================
+End of Report
 ================================================================================
 """
     return report_text
