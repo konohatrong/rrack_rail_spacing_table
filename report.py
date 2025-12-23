@@ -1,53 +1,126 @@
-def generate_plain_text_report(project_name, inputs, results):
+import pandas as pd
+import numpy as np
+
+def get_ascii_ridge_diagram(b, d, r_type):
+    """Generates ASCII diagram for Building Orientation & Ridge Line"""
+    if "Gable" in r_type:
+        return f"""
+       Wind 0 deg (Normal)
+             |
+             v
+      +---------------------+
+      |      ROOF A         |
+      | - - RIDGE LINE - - -| ---> Wind 90 deg
+      |      ROOF B         |
+      +---------------------+
+        """
+    else: 
+        return f"""
+       Wind 0 deg
+             |
+             v
+      +---------------------+
+      |    MONOSLOPE        |
+      |                     |
+      +---------------------+ ---> Wind 90 deg
+        """
+
+def get_ascii_art(zone_code):
+    """Returns ASCII art for specific roof zones"""
+    if zone_code == "RA1": return "[ RA 1: GENERAL AREA ]"
+    elif zone_code == "RA2": return "[ RA 2: EDGES / RIDGE ]"
+    elif zone_code == "RA3": return "[ RA 3: CORNERS ]"
+    elif zone_code == "RA4": return "[ RA 4: HIGH SUCTION ]"
+    return ""
+
+def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_res):
     """
-    สร้างรายงาน Plain Text
+    Main function to generate the plain text report.
+    Args:
+        inputs (dict): General project inputs (Region, IL, Geometry, etc.)
+        wind_res (dict): Wind analysis details (Cpe values, Direction logic)
+        struct_res (dict): Rail capacity data (Mn, Test data)
+        zone_results (list): List of dictionaries containing results for each zone
+        critical_res (dict): Dictionary of the worst-case scenario
     """
-    report = f"""
-==========================================================
-STRUCTURAL CALCULATION REPORT: SOLAR RAIL DESIGN
-Standard: AS/NZS 1170.2:2021
-Project: {project_name}
-==========================================================
+    
+    # Create DataFrame for Table formatting
+    df_res = pd.DataFrame(zone_results)
+    table_str = df_res.to_string(
+        index=False, 
+        justify="right", 
+        float_format=lambda x: "{:.3f}".format(x) if isinstance(x, (float, np.floating)) else str(x)
+    )
+    
+    # Generate Visuals
+    ridge_art = get_ascii_ridge_diagram(inputs['b_width'], inputs['b_depth'], inputs['roof_type'])
+    
+    zone_art = ""
+    for z in zone_results:
+        zone_art += f"\n--- ZONE {z['Zone']} ({z['Description']}) ---"
+        zone_art += get_ascii_art(z['Zone'])
+        zone_art += "\n"
 
-[1] DESIGN PARAMETERS
----------------------
-Testing Data (ASTM E290-14 Based):
-  - Breaking Load: {inputs['breaking_load']:.2f} kN
-  - Test Span:     {inputs['test_span']:.2f} m
-  -> Calculated Mn: {results['Mn']:.2f} kNm
+    # Assemble Report Text
+    report_text = f"""
+================================================================================
+                    SOLAR RAIL STRUCTURAL CALCULATION REPORT
+                          Standard: AS/NZS 1170.2:2021
+================================================================================
 
-Solar Panel Data:
-  - Size (W x D):  {inputs['panel_width']:.3f} m x {inputs['panel_depth']:.3f} m
-  - Orientation:   Rails parallel to {inputs['rail_orient']}
-  - Tributary Width: {results['trib_width']:.3f} m
+[1] PROJECT INPUTS
+------------------
+   - Rail Model:                 {inputs['rail_brand']} - {inputs['rail_model']}
+   - Region:                     {inputs['region']}
+   - Importance Level:           {inputs['imp_level']} (Design Life: {inputs['design_life']} years)
+   - Annual Prob. Exceedance:    1/{inputs['ret_period']}
+   - Regional Wind Speed (Vr):   {inputs['vr']} m/s
+   - Design Wind Speed (Vdes):   {inputs['v_des']:.2f} m/s
+     (Multipliers: Md={inputs['md']}, Ms={inputs['ms']}, Mt={inputs['mt']}, Mz,cat={inputs['mz_cat']:.2f})
+   
+   - Building Dimensions:        {inputs['b_width']}m (W) x {inputs['b_depth']}m (D) x {inputs['b_height']}m (H)
+   - Roof Configuration:         {inputs['roof_type']}, Angle {inputs['roof_angle']} deg
+   
+   - Rail Capacity (Mn):         {struct_res['Mn']:.3f} kNm
+     (Test Data: Break Load {struct_res['break_load']} kN, Span {struct_res['test_span']} m, SF {struct_res['sf']})
 
-Wind Load Parameters (AS/NZS 1170.2 - Section 5):
-  - Design Wind Speed (V_des): {inputs['v_des']:.2f} m/s
-  - Roof Angle:    {inputs['roof_angle']:.1f} degrees
-  - Cpe (Interp.): {results['cpe']:.2f}
-  - Coeffs (Ka,Kc,Kl,Kp): {inputs['coeffs']}
-  - Design Pressure (p): {results['pressure_kpa']:.2f} kPa
-  - Line Load on Rail (w): {results['w_load']:.2f} kN/m
+[2] WIND ANALYSIS DETAILS
+-------------------------
+   A. Direction Check
+      - Wind 0 deg (Normal):     Cpe = {wind_res['cpe_0']:.2f} (h/d={wind_res['ratio_0']:.2f})
+      - Wind 90 deg (Parallel):  Cpe = {wind_res['cpe_90']:.2f} (h/b={wind_res['ratio_90']:.2f})
+      
+      >> GOVERNING CASE:         {wind_res['governing_case']}
+         ({wind_res['note']})
 
-[2] STRUCTURAL ANALYSIS (FEM)
------------------------------
-Method: Finite Element Method (Matrix Stiffness)
-Configuration: Continuous Beam with {inputs['num_spans']} spans
+   B. Load Parameters
+      - Tributary Width:         {wind_res['trib_width']:.3f} m
+      - Area Reduction (Ka):     {wind_res['ka']}
+      - Combination Factor (Kc): {wind_res['kc']}
 
-Optimization Result:
-  - Iterative check for M_design < Mn
-  - Max Allowable Span: {results['opt_span']:.2f} m
-  - M_design at Max Span: {results['m_design']:.2f} kNm
-  - Mn Capacity: {results['Mn']:.2f} kNm
-  - Utilization Ratio: {(results['m_design']/results['Mn'])*100:.1f} %
+[3] ZONE ANALYSIS SUMMARY (RA1-RA4)
+-----------------------------------
+{table_str}
 
-[3] CONCLUSION
---------------
-The aluminum rail profile can support the solar installation 
-with a maximum support spacing of {results['opt_span']:.2f} meters 
-under the specified wind conditions.
+[4] CRITICAL CASE RESULTS ({critical_res['zone']})
+----------------------------------------------------
+   The most critical condition occurs in Zone: {critical_res['zone']}
+   
+   >> Max Design Moment (M*):    {critical_res['moment']:.3f} kNm
+   >> Max Design Shear (V*):     {critical_res['shear_max']:.3f} kN
+   >> Max Reaction Force:        {critical_res['reaction']:.3f} kN
+   >> Max Allowable Span:        {critical_res['span']:.2f} m
 
-==========================================================
-Generated by AI Engineer (Gemini)
-    """
-    return report
+   [Design Check]
+   M* ({critical_res['moment']:.3f}) < Mn ({struct_res['Mn']:.3f}) --> OK
+
+[5] VISUALIZATION GUIDE
+-----------------------
+{ridge_art}
+
+{zone_art}
+================================================================================
+Generated by Solar Rail App | Date: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
+================================================================================
+"""
+    return report_text
