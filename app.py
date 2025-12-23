@@ -46,6 +46,15 @@ df_rails = load_rail_data()
 # ==========================================
 # SIDEBAR INPUTS
 # ==========================================
+
+# --- 0. PROJECT INFO (NEW) ---
+st.sidebar.header("0. Project Details")
+project_name = st.sidebar.text_input("Project Name", "Solar Rooftop Project")
+project_loc = st.sidebar.text_input("Location", "Bangkok, Thailand")
+engineer_name = st.sidebar.text_input("Engineer Name", "-")
+
+st.sidebar.markdown("---")
+
 st.sidebar.header("1. Wind Parameters")
 region = st.sidebar.selectbox("Wind Region", ["A0", "A1", "A2", "A3", "A4", "A5", "B1", "B2", "C", "D"], index=1)
 imp_level = st.sidebar.selectbox("Importance Level (IL)", [1, 2, 3, 4], index=1)
@@ -99,7 +108,7 @@ safety_factor = st.sidebar.number_input("Safety Factor", value=1.1, min_value=0.
 num_spans = st.sidebar.slider("Spans", 1, 5, 2)
 
 # ==========================================
-# VISUALIZATION FUNCTIONS (ADDED BACK)
+# VISUALIZATION FUNCTIONS
 # ==========================================
 def plot_building_diagram(b, d, r_type):
     fig, ax = plt.subplots(figsize=(5, 3))
@@ -135,13 +144,11 @@ def plot_panel_load(pw, pd, orient, tw):
 
 def plot_fem(res, zone):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
-    # Shear
     ax1.plot(res['x'], res['shear'], 'b-'); ax1.fill_between(res['x'], res['shear'], color='blue', alpha=0.1)
     ax1.set_ylabel("Shear (kN)"); ax1.set_title(f"SFD - {zone}"); ax1.grid(True, ls=':')
     v_max = np.argmax(np.abs(res['shear'])); ax1.plot(res['x'][v_max], res['shear'][v_max], 'ro')
     ax1.annotate(f"V*={abs(res['shear'][v_max]):.2f}", xy=(res['x'][v_max], res['shear'][v_max]), xytext=(5,10), textcoords="offset points", color='red', fontweight='bold')
     
-    # Moment
     ax2.plot(res['x'], res['moment'], 'r-'); ax2.fill_between(res['x'], res['moment'], color='red', alpha=0.1)
     ax2.set_ylabel("Moment (kNm)"); ax2.set_title(f"BMD - {zone}"); ax2.grid(True, ls=':')
     m_max = np.argmax(np.abs(res['moment'])); ax2.plot(res['x'][m_max], res['moment'][m_max], 'bo')
@@ -207,102 +214,46 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
 
     st.divider(); st.header("📊 Analysis Report Summary")
     
-    # --- 1. INPUT SUMMARY & VERIFICATION ---
+    # 1. Verification
     st.subheader("1. Detailed Input Verification")
-    
-    # Wind Speed Calculation
     st.markdown('<div class="calculation-box">', unsafe_allow_html=True)
-    st.markdown("#### A. Design Wind Speed ($V_{des}$) Calculation")
-    st.markdown("Ref: AS/NZS 1170.2 Eq. 2.2")
-    st.latex(r"V_{des} = V_R \cdot M_d \cdot (M_{z,cat} \cdot M_s \cdot M_t)")
-    
-    c1, c2, c3 = st.columns(3)
-    c1.write(f"**Vr (Region {region}):** {vr} m/s")
-    c1.caption(f"Importance L{imp_level}, Life {design_life}y")
-    c2.write(f"**Mz,cat:** {mz_cat:.2f}")
-    c2.caption(f"Terrain Cat {tc}, z={b_height}m")
-    c3.write(f"**Multipliers:** Md={md}, Ms={ms}, Mt={mt}")
-    
-    st.markdown(f"**Substitution:** {vr} * {md} * ({mz_cat:.2f} * {ms} * {mt})")
-    st.success(f"**Result: Vdes = {v_des:.2f} m/s**")
+    st.markdown(f"**Design Wind Speed ($V_{{des}}$): {v_des:.2f} m/s**")
+    st.markdown(f"- Formula: $V_R \cdot M_d \cdot (M_{{z,cat}} \cdot M_s \cdot M_t)$")
+    st.markdown(f"- Subst: {vr} * {md} * ({mz_cat:.2f} * {ms} * {mt})")
     st.markdown('</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns([1, 1])
+    with c1: st.write(f"**Rail:** {rail_brand}"); st.write(f"**Mn:** {s_dat['Mn']:.3f} kNm")
+    with c2: st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
 
-    # Geometry & Capacity Diagram
-    col_geo1, col_geo2 = st.columns([1, 1])
-    with col_geo1:
-        st.markdown("#### Geometry & Capacity")
-        st.write(f"- **Building:** {b_width}x{b_depth}x{b_height}m ({roof_type}, {roof_angle}°)")
-        st.write(f"- **Rail Capacity (Mn):** {s_dat['Mn']:.3f} kNm")
-    with col_geo2:
-        # ** FIX: Restore Geometry Diagram **
-        st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
-
-    st.divider()
-
-    # --- 2. WIND ANALYSIS ---
-    st.subheader("2. Wind Analysis ($C_{p,e}$ Selection)")
+    # 2. Wind
+    st.divider(); st.subheader("2. Wind Analysis ($C_{p,e}$)")
     st.markdown('<div class="info-box">', unsafe_allow_html=True)
-    st.markdown("#### B. External Pressure Coefficient ($C_{p,e}$) Selection")
-    st.markdown(f"**Roof Configuration:** {roof_type} with Angle **{roof_angle}°**")
-    
-    w1, w2 = st.columns(2)
-    with w1:
-        st.write("**Case 1: Wind 0° (Normal)**")
-        st.write(f"- Aspect Ratio (h/d): {b_height}/{b_depth} = **{w_dat['r0']:.2f}**")
-        st.write(f"- Result Cpe: **{w_dat['res0']['cpe']:.2f}**")
-    with w2:
-        st.write("**Case 2: Wind 90° (Parallel)**")
-        st.write(f"- Aspect Ratio (h/b): {b_height}/{b_width} = **{w_dat['r90']:.2f}**")
-        st.write(f"- Result Cpe: **{w_dat['res90']['cpe']:.2f}**")
-        
-    st.warning(f"**Selected Governing Case:** {w_dat['gov_case']} (Most critical suction)")
+    st.write(f"**Roof:** {roof_type} @ {roof_angle}°")
+    st.write(f"- Wind 0° (Normal): h/d={w_dat['r0']:.2f} -> Cpe={w_dat['res0']['cpe']:.2f}")
+    st.write(f"- Wind 90° (Parallel): h/b={w_dat['r90']:.2f} -> Cpe={w_dat['res90']['cpe']:.2f}")
+    st.warning(f"**Governing:** {w_dat['gov_case']}")
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    # ** FIX: Restore Tributary Width Diagram **
-    c_trib1, c_trib2 = st.columns([1, 1])
-    with c_trib1:
-        st.markdown(f"**Tributary Width:** {w_dat['trib_width']:.3f} m")
-    with c_trib2:
-        st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
+    st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
-    # --- 3. ZONE TABLE ---
+    # 3. Table
     st.divider(); st.subheader("3. Zone Analysis Summary")
     df_res = pd.DataFrame(res_list)
-    # Drop history before displaying to fix DataFrame errors
-    df_display = df_res.drop(columns=['history'], errors='ignore')
-    
-    # ** FIX: Apply style.format ONLY to numeric columns to prevent string formatting errors **
-    st.dataframe(
-        df_display.style.format({
-            "Pressure (kPa)": "{:.3f}",
-            "Line Load (kN/m)": "{:.3f}",
-            "Max Span (m)": "{:.2f}",
-            "M* (kNm)": "{:.3f}",
-            "Reaction (kN)": "{:.2f}",
-            "Kl": "{:.1f}"
-        }),
-        use_container_width=True
-    )
+    df_disp = df_res.drop(columns=['history'], errors='ignore')
+    st.dataframe(df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]].style.format("{:.3f}"), use_container_width=True)
 
-    # --- 4. CRITICAL CASE ---
-    st.divider(); st.subheader(f"4. Critical Case Analysis ({w_res['zone']})")
-    
-    col_crit1, col_crit2 = st.columns([1, 2])
-    with col_crit1:
-        st.markdown("### Design Actions")
-        st.metric("M* (Design Moment)", f"{w_res['moment']:.3f} kNm", f"Capacity: {s_dat['Mn']:.3f}")
+    # 4. Critical
+    st.divider(); st.subheader(f"4. Critical Case: {w_res['zone']}")
+    c1, c2 = st.columns([1, 2])
+    with c1: 
         st.metric("Max Span", f"{w_res['span']:.2f} m")
-        
-        st.markdown("#### Reaction Forces (For Clamp Design)")
-        st.write(f"- **End Support:** {w_res['rxn_edge']:.3f} kN")
-        st.write(f"- **Mid Support:** {w_res['rxn_int']:.3f} kN")
-        
-    with col_crit2:
-        st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
+        st.metric("M*", f"{w_res['moment']:.3f} kNm")
+        st.write(f"**Reactions:** Edge={w_res['rxn_edge']:.2f}, Mid={w_res['rxn_int']:.2f} kN")
+    with c2: st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
 
-    # REPORT GENERATION
+    # Report
     st.divider(); st.header("📄 Plain Text Report")
     inp_d = {
+        'project_name': project_name, 'project_location': project_loc, 'engineer': engineer_name,
         'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
         'ret_period': ret_period, 'vr': vr, 'v_des': v_des, 'md': md, 'ms': ms, 'mt': mt, 'mz_cat': mz_cat, 'tc': tc,
         'b_width': b_width, 'b_depth': b_depth, 'b_height': b_height, 'roof_type': roof_type, 'roof_angle': roof_angle,
