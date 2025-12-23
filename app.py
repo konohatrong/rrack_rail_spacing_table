@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import pandas as pd
-import datetime  # เพิ่ม library สำหรับจัดการวันที่
 
 # Set page configuration
 st.set_page_config(page_title="Solar Rail Design (AS/NZS 1170.2)", layout="wide")
@@ -222,21 +221,12 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     st.markdown(f"- Formula: $V_R \cdot M_d \cdot (M_{{z,cat}} \cdot M_s \cdot M_t)$")
     st.markdown(f"- Subst: {vr} * {md} * ({mz_cat:.2f} * {ms} * {mt})")
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    c_geo1, c_geo2 = st.columns([1, 1])
-    with c_geo1:
-        st.markdown("#### Geometry & Capacity")
-        st.write(f"- **Rail Model:** {rail_brand} ({rail_model})")
-        st.write(f"- **Capacity (Mn):** {s_dat['Mn']:.3f} kNm")
-        st.write(f"- **Building:** {b_width}x{b_depth}x{b_height}m")
-        st.write(f"- **Roof:** {roof_type} @ {roof_angle}°")
-    with c_geo2:
-        st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
-
-    st.divider()
+    c1, c2 = st.columns([1, 1])
+    with c1: st.write(f"**Rail:** {rail_brand}"); st.write(f"**Mn:** {s_dat['Mn']:.3f} kNm")
+    with c2: st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
 
     # 2. Wind
-    st.subheader("2. Wind Analysis ($C_{p,e}$ Selection)")
+    st.divider(); st.subheader("2. Wind Analysis ($C_{p,e}$ Selection)")
     st.markdown('<div class="info-box">', unsafe_allow_html=True)
     st.markdown("#### External Pressure Coefficient ($C_{p,e}$)")
     w1, w2 = st.columns(2)
@@ -249,17 +239,9 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
         st.write(f"- h/b Ratio: {b_height}/{b_width} = **{w_dat['r90']:.2f}**")
         st.write(f"- Cpe: **{w_dat['res90']['cpe']:.2f}**")
         
-    st.warning(f"**Selected Governing Case:** {w_dat['gov_case']} (Most critical suction)")
+    st.warning(f"**Selected Governing Case:** {w_dat['gov_case']}")
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    c_trib1, c_trib2 = st.columns([1, 1])
-    with c_trib1:
-        st.markdown("#### Load Parameters")
-        st.write(f"- **Tributary Width:** {w_dat['trib_width']:.3f} m")
-        st.write(f"- **Ka (Area Red.):** {ka}")
-        st.write(f"- **Kc (Comb.):** {kc}")
-    with c_trib2:
-        st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
+    st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
     # 3. Table
     st.divider(); st.subheader("3. Zone Analysis Summary")
@@ -281,23 +263,16 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     # 4. Critical
     st.divider(); st.subheader(f"4. Critical Case Analysis ({w_res['zone']})")
     
-    col_crit1, col_crit2 = st.columns([1, 2])
-    with c_crit1:
-        st.markdown("### Design Values")
+    # --- FIXED VARIABLE NAME ERROR HERE (c1, c2 instead of col_crit1) ---
+    c1, c2 = st.columns([1, 2])
+    with c1: 
         st.metric("Max Span", f"{w_res['span']:.2f} m")
-        st.metric("Design Moment (M*)", f"{w_res['moment']:.3f} kNm")
-        
-        st.markdown("---")
-        st.markdown("### Reaction Forces")
-        st.metric("Max End Reaction (Edge)", f"{w_res['rxn_edge']:.3f} kN")
-        st.metric("Max Int. Reaction (Mid)", f"{w_res['rxn_int']:.3f} kN")
-        
-    with col_crit2:
-        st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
+        st.metric("M*", f"{w_res['moment']:.3f} kNm")
+        st.write(f"**Reactions:** Edge={w_res['rxn_edge']:.2f}, Mid={w_res['rxn_int']:.2f} kN")
+    with c2: st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
 
-    # REPORT GENERATION
+    # Report
     st.divider(); st.header("📄 Plain Text & PDF Report")
-    
     inp_d = {
         'project_name': project_name, 'project_location': project_loc, 'engineer': engineer_name,
         'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
@@ -312,7 +287,7 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     
     rep_text = report.generate_full_report(inp_d, w_d, s_dat, res_list, w_res)
     
-    # FILENAME GENERATION
+    # Filename
     clean_proj_name = project_name.strip().replace(" ", "_") if project_name else "Solar_Project"
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
     fname = f"{clean_proj_name}_Report_{date_str}"
