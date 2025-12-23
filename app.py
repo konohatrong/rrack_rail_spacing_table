@@ -10,11 +10,13 @@ import pandas as pd
 # Set page configuration
 st.set_page_config(page_title="Solar Rail Design (AS/NZS 1170.2)", layout="wide")
 
-# Custom CSS
+# Custom CSS for cleaner layout
 st.markdown("""
 <style>
     .reportview-container .main .block-container{ font-family: 'Tahoma', sans-serif; }
     h1, h2, h3 { font-family: 'Tahoma', sans-serif; }
+    div.stButton > button { width: 100%; font-weight: bold; }
+    .metric-box { border: 1px solid #e6e6e6; padding: 10px; border-radius: 5px; background-color: #f9f9f9; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -81,26 +83,16 @@ def plot_building_diagram(b, d, r_type):
     ax.text(-b*0.15, d/2, f"Depth d = {d}m", ha='right', va='center', rotation=90, color='green', fontweight='bold', family='sans-serif')
     
     # 3. Wind Arrows
-    # Wind 0 (Red) -> Normal to Ridge (Transverse)
     ax.arrow(b/2, d+d*0.3, 0, -d*0.2, head_width=b*0.05, head_length=d*0.05, fc='red', ec='red')
     ax.text(b/2, d+d*0.35, "Wind 0° (Normal)\n(Use h/d)", ha='center', color='red', fontsize=8, family='sans-serif')
     
-    # Wind 90 (Orange) -> Parallel to Ridge (Longitudinal)
     ax.arrow(-b*0.3, d/2, b*0.2, 0, head_width=d*0.05, head_length=b*0.05, fc='orange', ec='orange')
     ax.text(-b*0.35, d/2, "Wind 90° (Parallel)\n(Use h/b)", ha='center', va='center', rotation=90, color='orange', fontsize=8, family='sans-serif')
 
-    # 4. RIDGE LINE (New Feature)
+    # 4. RIDGE LINE
     if "Gable" in r_type:
-        # Draw Ridge Line horizontally (Assuming Wind 0 is transverse/normal to ridge)
-        # Coordinates: (0, d/2) to (b, d/2)
         ax.plot([0, b], [d/2, d/2], color='purple', linestyle='-.', linewidth=2.5, label='Ridge Line')
         ax.text(b*0.02, d/2 + d*0.03, "RIDGE LINE", color='purple', fontsize=9, fontweight='bold', ha='left')
-        
-        # Add slopes arrows
-        # Arrow pointing away from ridge (down slope)
-        if d > 2: # Only draw if enough space
-            ax.arrow(b/2, d/2 - d*0.1, 0, -d*0.1, head_width=b*0.02, head_length=d*0.02, fc='purple', ec='purple', alpha=0.5)
-            ax.arrow(b/2, d/2 + d*0.1, 0, d*0.1, head_width=b*0.02, head_length=d*0.02, fc='purple', ec='purple', alpha=0.5)
 
     ax.set_xlim(-b*0.5, b*1.5)
     ax.set_ylim(-d*0.3, d*1.5)
@@ -111,6 +103,40 @@ def plot_building_diagram(b, d, r_type):
 # ==========================================
 # ASCII ART LIBRARY
 # ==========================================
+def get_ascii_ridge_diagram(b, d, r_type):
+    """Generates ASCII diagram for Building Orientation & Ridge Line"""
+    if "Gable" in r_type:
+        return f"""
+       Wind 0 deg (Normal/Transverse)
+                 |
+                 v
+      +-----------------------------+
+      |                             |
+      |          ROOF SIDE A        |
+      |                             |
+      | - - - - RIDGE LINE - - - - -| ---> Wind 90 deg (Parallel)
+      |                             |
+      |          ROOF SIDE B        |
+      |                             |
+      +-----------------------------+
+      (Building: {b}m Width x {d}m Depth)
+        """
+    else: # Monoslope
+        return f"""
+       Wind 0 deg (Low to High or High to Low)
+                 |
+                 v
+      +-----------------------------+
+      |                             |
+      |                             |
+      |        MONOSLOPE ROOF       |
+      |                             |
+      |                             |
+      |                             |
+      +-----------------------------+ ---> Wind 90 deg
+      (Building: {b}m Width x {d}m Depth)
+        """
+
 def get_ascii_art(zone_code):
     if zone_code == "RA1":
         return """
@@ -118,7 +144,6 @@ def get_ascii_art(zone_code):
       |                             |
       |      [      RA 1      ]     |
       |      [  GENERAL AREA  ]     |
-      |      [   Internal     ]     |
       |                             |
       +-----------------------------+
       (Central area of the roof)
@@ -128,10 +153,10 @@ def get_ascii_art(zone_code):
       +#############################+
       |#                           #|
       |#     [      RA 2      ]    #|
-      |#     [      EDGES     ]    #|
+      |#     [  EDGES / RIDGE ]    #|
       |#                           #|
       +#############################+
-      (Perimeter strips along edges)
+      (Perimeter strips along edges & ridge)
         """
     elif zone_code == "RA3":
         return """
@@ -151,8 +176,7 @@ def get_ascii_art(zone_code):
              [  HIGH SUCTION  ]      
                                      
       X-----------------------------X
-      (Small localized spots, usually 
-       at corner tips or accessories)
+      (Small localized spots at tips)
         """
     return ""
 
@@ -163,18 +187,26 @@ if st.button("🚀 Run Analysis for All Zones"):
     Mn = structural.calculate_Mn(breaking_load, test_span, safety_factor)
     trib_width = wind_load.calculate_tributary_width(panel_w, panel_d, orient_key)
     
-    # 1. Wind Analysis
+    # --- 1. DETAILED WIND DIRECTION ANALYSIS (Restored) ---
+    # Case 0 deg: Ratio = h / d
     ratio_0 = b_height / b_depth
     res_0 = wind_load.solve_cpe_for_ratio(roof_angle, roof_type, ratio_0)
+    
+    # Case 90 deg: Ratio = h / b
     ratio_90 = b_height / b_width
     res_90 = wind_load.solve_cpe_for_ratio(roof_angle, roof_type, ratio_90)
     
-    if res_0['cpe'] < res_90['cpe']:
-        base_cpe, governing_case = res_0['cpe'], f"Wind 0° (Normal) | h/d={ratio_0:.2f}"
+    # Determine Worst Case
+    if res_0['cpe'] < res_90['cpe']: # More negative is worse
+        base_cpe = res_0['cpe']
+        governing_case = f"Wind 0° (Normal) | h/d={ratio_0:.2f}"
+        governing_note = res_0['note']
     else:
-        base_cpe, governing_case = res_90['cpe'], f"Wind 90° (Side) | h/b={ratio_90:.2f}"
+        base_cpe = res_90['cpe']
+        governing_case = f"Wind 90° (Side) | h/b={ratio_90:.2f}"
+        governing_note = res_90['note']
 
-    # 2. Iterate Zones
+    # --- 2. Iterate Zones using Base Cpe ---
     zones = [
         {"code": "RA1", "desc": "General Area", "kl": 1.0},
         {"code": "RA2", "desc": "Edges / Ridge", "kl": 1.5},
@@ -218,8 +250,31 @@ if st.button("🚀 Run Analysis for All Zones"):
     st.divider()
     st.header("📊 Analysis Report Summary")
     
-    # 1. Table
-    st.subheader("1. Zone Analysis Summary")
+    # --- SECTION A: WIND DIRECTION COMPARISON ---
+    st.subheader("1. Wind Direction Analysis ($C_{p,e}$ Check)")
+    col_w1, col_w2, col_w3 = st.columns(3)
+    
+    with col_w1:
+        st.markdown("#### Wind 0° (Normal)")
+        st.write(f"- Ratio h/d: **{ratio_0:.2f}**")
+        st.info(f"Cpe = **{res_0['cpe']:.2f}**")
+        st.caption(f"Note: {res_0['note']}")
+        
+    with col_w2:
+        st.markdown("#### Wind 90° (Parallel)")
+        st.write(f"- Ratio h/b: **{ratio_90:.2f}**")
+        st.info(f"Cpe = **{res_90['cpe']:.2f}**")
+        st.caption(f"Note: {res_90['note']}")
+        
+    with col_w3:
+        st.markdown("#### Governing Case")
+        st.error(f"**{governing_case}**")
+        st.metric("Base Cpe", f"{base_cpe:.2f}")
+
+    st.divider()
+
+    # --- SECTION B: ZONE TABLE ---
+    st.subheader("2. Zone Optimization Summary (RA1 - RA4)")
     df_res = pd.DataFrame(results_list)
     st.dataframe(
         df_res.style.format("{:.3f}", subset=["Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "Reaction (kN)"])
@@ -230,9 +285,13 @@ if st.button("🚀 Run Analysis for All Zones"):
     )
 
     st.divider()
+    
+    # --- SECTION C: DIAGRAMS ---
     col1, col2 = st.columns([1, 1])
     with col1:
-        st.subheader(f"2. Critical Case: {worst_case_res['zone']}")
+        st.subheader(f"3. Critical Case: {worst_case_res['zone']}")
+        st.markdown(f"Worst case analysis for **{worst_case_res['zone']}** (Pressure: {worst_case_res['pressure']:.3f} kPa)")
+        
         fig_fem, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 5), sharex=True)
         res = worst_case_res['fem']
         ax1.plot(res['x'], res['shear'], 'b-')
@@ -249,13 +308,11 @@ if st.button("🚀 Run Analysis for All Zones"):
         st.pyplot(fig_fem)
         
     with col2:
-        st.subheader("3. Input & Geometry")
-        # Pass roof_type to the diagram function
+        st.subheader("4. Input & Geometry")
         st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
         st.markdown("---")
         st.write(f"- **V_des:** {v_des:.2f} m/s")
         st.write(f"- **Angle:** {roof_angle}° ({roof_type})")
-        st.write(f"- **Direction:** {governing_case}")
         st.write(f"- **Capacity (Mn):** {Mn:.3f} kNm")
 
     # ==========================
@@ -266,11 +323,14 @@ if st.button("🚀 Run Analysis for All Zones"):
     
     table_str = df_res.to_string(index=False, justify="right", float_format=lambda x: "{:.3f}".format(x))
     
-    ascii_block = ""
+    # ASCII Blocks
+    ridge_art = get_ascii_ridge_diagram(b_width, b_depth, roof_type)
+    
+    zone_art = ""
     for z in zones:
-        ascii_block += f"\n--- ZONE {z['code']} ({z['desc']}) ---"
-        ascii_block += get_ascii_art(z['code'])
-        ascii_block += "\n"
+        zone_art += f"\n--- ZONE {z['code']} ({z['desc']}) ---"
+        zone_art += get_ascii_art(z['code'])
+        zone_art += "\n"
 
     report_text = f"""
 ================================================================================
@@ -291,15 +351,31 @@ if st.button("🚀 Run Analysis for All Zones"):
    - Rail Capacity (Mn):         {Mn:.3f} kNm 
      (Based on Test: Break Load {breaking_load} kN, Span {test_span} m, SF {safety_factor})
 
-[2] ANALYSIS RESULTS SUMMARY (ALL ZONES)
-----------------------------------------
-   - Governing Wind Direction:   {governing_case}
-   - Base External Cp,e:         {base_cpe:.2f}
-   - Tributary Width:            {trib_width:.3f} m
+[2] WIND ANALYSIS DETAILS
+-------------------------
+   [2.1] DIRECTIONAL ANALYSIS (Cpe Check)
+   --------------------------------------
+   A. Wind 0 deg (Normal/Transverse):
+      - Aspect Ratio h/d: {ratio_0:.2f}
+      - Cpe Value:        {res_0['cpe']:.2f} ({res_0['note']})
 
+   B. Wind 90 deg (Parallel/Longitudinal):
+      - Aspect Ratio h/b: {ratio_90:.2f}
+      - Cpe Value:        {res_90['cpe']:.2f} ({res_90['note']})
+
+   >> GOVERNING CASE: {governing_case}
+      Base Cpe used for design: {base_cpe:.2f}
+
+   [2.2] LOAD PARAMETERS
+   ---------------------
+   - Tributary Width:    {trib_width:.3f} m
+   - Area Reduction Ka:  {ka}
+
+[3] ZONE OPTIMIZATION SUMMARY (RA1 - RA4)
+-----------------------------------------
 {table_str}
 
-[3] CRITICAL DESIGN VALUES (WORST CASE SCENARIO)
+[4] CRITICAL DESIGN VALUES (WORST CASE SCENARIO)
 ------------------------------------------------
    The most critical condition occurs in Zone: {worst_case_res['zone']}
    
@@ -308,7 +384,7 @@ if st.button("🚀 Run Analysis for All Zones"):
    >> Max Allowable Span:        {worst_case_res['span']:.2f} m
    >> Max Uplift Reaction:       {df_res.loc[df_res['Zone'] == worst_case_res['zone'], 'Reaction (kN)'].values[0]:.3f} kN
 
-[4] LIMITATIONS & CONDITIONS OF USE
+[5] LIMITATIONS & CONDITIONS OF USE
 -----------------------------------
    1. Valid Design Scope:
       - Terrain Category: {tc}
@@ -320,9 +396,13 @@ if st.button("🚀 Run Analysis for All Zones"):
       - The Pull-out capacity of screws/fasteners must be verified separately.
       - Rail deflection checks (Serviceability) are not included.
 
-[5] ZONE VISUALIZATION GUIDE (ASCII ART)
-----------------------------------------
-{ascii_block}
+[6] VISUALIZATION GUIDE (ASCII ART)
+-----------------------------------
+   [6.1] BUILDING ORIENTATION & RIDGE
+{ridge_art}
+
+   [6.2] ROOF ZONES REFERENCE
+{zone_art}
 ================================================================================
 Generated by Solar Rail App | Date: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
 ================================================================================
