@@ -8,21 +8,22 @@ from fpdf import FPDF
 # ==========================================
 def get_report_logo():
     """
-    Returns the custom ASCII Art Logo
+    Returns the custom ASCII Art Logo from ascii-art.txt
     """
     return r"""
-3555555555537      14444445537            5957            7325464523   541      7352     735666451  12237      
-         266666666666657    309222225905          30002          3908652225693  983     1985    76865333342 733371   
-         266643333466664    3047     7605        1901981       79041            903    4067     891         723321      
-         266657    466663   3047      209         502 389      1803              903  3881      1091                     
-         322237   7466667   304       405       3067  405     402            9037405         4061                    
-         355555555466643    205     3983       7893   7803   198                906061           290951          
-         26666666666437     2000000047         605     3097  199                984002             7390093              
-         2666455466663      205   76091        2085552222905  760                983 4067               19047            
-         266657 75666657    205     3097     190444455555901  204               983  3905          7402            
-         266657  75666657   505      5097   7405         209   5047             983   75093              505            
-        266657    2666641  505       5087  3067          604   38093      753  983     7904   193      5047            
-         244457     3444451 285        4867 993            1993    159888889627  693       5991 72699889957
+                                                                                                                       
+      ..:::::::-:..    .-----::.          .--.          ..:---:....-:.     ::..   .:---:...:::.     
+       :**********+.   .@#++++#@#.       .*@@-.      .:*@%#+++#%- :@*.   .*@=.  .#%*=-=**..-:.:     
+       :***=:::+****.  :@+    ..@#.      -@-*@.     .#@=..        :@*.  -@*.   .@=.       .+.=:     
+       :***=  ..****:..:@+.     #@      :%#.:%#.    *@:.          :@* .#%:.    .@#.         ..      
+       ........=***+...:@+    .=@-      *%.  =@-  .:@-.           :@*=@-        -@%-.               
+       :**********=.  .:@%##%@%=.     .=@-.  .*@. .-@:            :@@@*.         .:#@@+:..          
+       :****+****=.   .:@=...*@=      :%%=----=%#. :@-            :@+.#@-           ..=@#.          
+       :***= .=****.   :@=   .=@+.   .*@======-+@-  *%.           :@+..-@#.            :@+          
+       :***=  .-****:..-@=    .+@=.  =@=        #@. .#%-..      ..:@+.  .*@=.. ...    .-@=          
+       :***=    :****:.-@=      +@+.:%#.        :@#. .:%@@*+=+%@-.:@+.    :@%: :@@*==+%%-           
+      ......    ..........      .......         ....    ...::...  ....     ....  ......             
+                                                                                            
     """
 
 def get_ascii_ridge_diagram(b, d, r_type):
@@ -82,12 +83,17 @@ def get_ascii_art(zone_code):
     return ""
 
 def format_iteration_table(history, zone_name):
+    """Formats the last 10 steps of the iteration history."""
     if not history or len(history) == 0: 
         return f"   [No iteration history recorded for {zone_name}]"
+    
+    # Get last 10 steps
     steps = history[-10:]
+    
     header = f"   >> Iteration Log for {zone_name} (Last {len(steps)} Steps):"
     table_header =  "   |  Span (m)  |  M* (kNm)  | Util (%) | Status |"
     divider =       "   |------------|------------|----------|--------|"
+    
     rows = []
     for step in steps:
         sp = step.get('span', 0.0); ms = step.get('m_star', 0.0)
@@ -108,7 +114,7 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 
     table_str = df_clean.to_string(index=False, justify="right", float_format=lambda x: "{:.3f}".format(x) if isinstance(x, (float, np.floating)) else str(x))
     
-    # 2. Iteration Logs
+    # 2. Generate Iteration Logs
     iteration_logs = ""
     for z in zone_results:
         hist = z.get('history', [])
@@ -123,7 +129,7 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logo = get_report_logo()
 
-    # --- Calculation Blocks ---
+    # --- Detailed Calculation breakdown ---
     step_vdes = f"""
     1. Design Wind Speed (Vdes) Calculation:
        Ref: AS/NZS 1170.2 Eq. 2.2
@@ -227,11 +233,33 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 
 [6] LIMITATIONS & CONDITIONS OF USE (STRICT COMPLIANCE)
 -------------------------------------------------------
-   1. DESIGN STANDARD: AS/NZS 1170.2:2021 (Wind Actions).
-   2. ZONES: Covers RA1 (General), RA2 (Edges), RA3 (Corners), RA4 (Local).
-   3. GEOMETRY: Max Height {inputs['b_height']}m, Roof Angle {inputs['roof_angle']} deg.
-   4. STRUCTURE: Continuous Beam with {inputs['num_spans']} spans.
-   5. EXCLUSIONS: Fixing capacity, Roof structure, Deflection (SLS).
+   This analysis is valid ONLY when the following conditions are met:
+
+   1. DESIGN STANDARD:
+      - Calculations based on AS/NZS 1170.2:2021 (Wind Actions).
+      - AS/NZS 1170.0:2002 (General Principles) for probability factors.
+
+   2. ZONES CONSIDERED:
+      - The report explicitly covers Roof Zones: RA1 (General), RA2 (Edges), 
+        RA3 (Corners), and RA4 (Local Pressure). 
+      - Installation must respect the specific 'Max Span' for the zone it is placed in.
+
+   3. ROOF CONFIGURATION:
+      - Valid for Roof Type: {inputs['roof_type']}
+      - Valid for Roof Pitch: {inputs['roof_angle']} degrees (+/- 2 deg tolerance)
+      - Max Building Height: {inputs['b_height']} m
+
+   4. STRUCTURAL CONFIGURATION:
+      - Analysis assumes a Continuous Beam system with {inputs['num_spans']} spans.
+      - Minimum number of rail supports required: {inputs['num_spans'] + 1} supports.
+      - Single span installations are NOT covered by this specific calculation 
+        (unless Num Spans = 1 was selected).
+
+   5. EXCLUSIONS (ACTION REQUIRED):
+      - Fixing/Screw Capacity: The connection between the L-foot/Bracket and the 
+        roof purlin/rafter MUST be verified separately against the 'Max Reaction Force'.
+      - Rail Deflection: Serviceability limit state (L/200 etc.) is not checked.
+      - PV Clamping: Mid/End clamps holding the modules must be rated for the Design Pressure.
 
 [7] VISUALIZATION GUIDE
 -----------------------
@@ -242,20 +270,9 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
     return report_text
 
 def create_pdf_report(report_string):
-    """
-    Converts the text report into a PDF file (A4, No Scale).
-    """
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
-    
-    # Use Courier font (Monospaced)
     pdf.set_font("Courier", size=8)
-    
-    # Clean text to ensure compatibility
     safe_text = report_string.encode('latin-1', 'replace').decode('latin-1')
-    
-    # Write text
     pdf.multi_cell(0, 4, safe_text)
-    
-    # Return binary bytes
     return bytes(pdf.output())
