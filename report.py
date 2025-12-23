@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import datetime
-from fpdf import FPDF # ต้องติดตั้ง: pip install fpdf2
 
 # ==========================================
 # ASCII ART ASSETS
@@ -93,34 +92,34 @@ def format_iteration_table(history, zone_name):
     return f"{header}\n{table_header}\n{divider}\n" + "\n".join(rows) + "\n"
 
 # ==========================================
-# REPORT GENERATORS (TEXT & PDF)
+# MAIN REPORT GENERATOR
 # ==========================================
-
-def generate_full_report_text(inputs, wind_res, struct_res, zone_results, critical_res):
-    """Generates the String content for the report."""
+def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_res):
     
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Tables & Logs
+    # 1. Format Tables
     df_res = pd.DataFrame(zone_results)
     df_clean = df_res.drop(columns=['history'], errors='ignore')
     if 'Utilization' not in df_clean.columns:
          df_clean['Utilization'] = (df_clean['M* (kNm)'] / struct_res['Mn']) * 100
+
     table_str = df_clean.to_string(index=False, justify="right", float_format=lambda x: "{:.3f}".format(x) if isinstance(x, (float, np.floating)) else str(x))
     
+    # 2. Iteration Logs
     iteration_logs = ""
     for z in zone_results:
         hist = z.get('history', [])
         iteration_logs += format_iteration_table(hist, z.get('Zone', 'Unknown')) + "\n"
 
-    # Visuals
-    logo = get_report_logo()
+    # 3. Visuals
     ridge_art = get_ascii_ridge_diagram(inputs['b_width'], inputs['b_depth'], inputs['roof_type'])
     zone_art = ""
     for z in zone_results:
         zone_art += f"\n   ZONE {z.get('Zone')} ({z.get('Description')}):\n" + get_ascii_art(z.get('Zone'))
 
-    # Content Blocks
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logo = get_report_logo()
+
+    # --- Calculation Blocks ---
     step_vdes = f"""
     1. Design Wind Speed (Vdes) Calculation:
        Ref: AS/NZS 1170.2 Eq. 2.2
@@ -128,6 +127,7 @@ def generate_full_report_text(inputs, wind_res, struct_res, zone_results, critic
        V_des = {inputs['vr']} * {inputs['md']} * ({inputs['mz_cat']:.2f} * {inputs['ms']} * {inputs['mt']})
        V_des = {inputs['v_des']:.2f} m/s
     """
+
     step_cpe = f"""
     2. External Pressure Coefficient (Cpe) Analysis:
        Ref: AS/NZS 1170.2 Section 5.3
@@ -137,12 +137,14 @@ def generate_full_report_text(inputs, wind_res, struct_res, zone_results, critic
        >> GOVERNING CASE: {wind_res['governing_case']}
        >> BASE Cpe: {wind_res['cpe_base']:.2f}
     """
+
     step_load = f"""
     3. Design Pressure & Line Load:
        p = 0.5 * rho * Vdes^2 * Cfig * Cdyn
        w = p * Tributary_Width ({wind_res['trib_width']:.3f} m)
        (Ka={wind_res['ka']}, Kc={wind_res['kc']})
     """
+
     step_optimization = f"""
     4. Span Optimization (Iterative FEM)
        Objective: Find Max Span (L) where M* <= Mn ({struct_res['Mn']:.3f} kNm)
@@ -199,7 +201,7 @@ def generate_full_report_text(inputs, wind_res, struct_res, zone_results, critic
 
 [6] LIMITATIONS & CONDITIONS OF USE (STRICT COMPLIANCE)
 -------------------------------------------------------
-   1. DESIGN STANDARD: AS/NZS 1170.2:2021.
+   1. DESIGN STANDARD: AS/NZS 1170.2:2021 (Wind Actions).
    2. ZONES: Covers RA1, RA2, RA3, RA4.
    3. GEOMETRY: Max Height {inputs['b_height']}m, Roof Angle {inputs['roof_angle']} deg.
    4. STRUCTURE: Continuous Beam with {inputs['num_spans']} spans.
@@ -212,29 +214,3 @@ def generate_full_report_text(inputs, wind_res, struct_res, zone_results, critic
 ================================================================================
 """
     return report_text
-
-def create_pdf_report(report_string):
-    """
-    Converts the text report into a PDF file (A4, No Scale).
-    """
-    pdf = FPDF(orientation='P', unit='mm', format='A4')
-    pdf.add_page()
-    
-    # Use Courier font (Monospaced) to preserve table alignment and ASCII art
-    # Size 9 is usually good for 80-100 characters width on A4
-    pdf.set_font("Courier", size=9)
-    
-    # Add content
-    # multi_cell(w, h, txt) -> w=0 means full width, h=5 line height
-    # Using latin-1 encoding to prevent errors with standard FPDF (ASCII/English only)
-    # If Thai characters are needed, FPDF needs a .ttf font file loaded.
-    # For now, we assume the report content generated is English/ASCII.
-    
-    # Clean text to ensure compatibility
-    safe_text = report_string.encode('latin-1', 'replace').decode('latin-1')
-    
-    pdf.multi_cell(0, 4, safe_text)
-    
-    # Return binary data
-    return pdf.output(dest='S').encode('latin-1')
-
