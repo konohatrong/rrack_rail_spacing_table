@@ -278,10 +278,7 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 
 [7] VISUALIZATION GUIDE
 -----------------------
-   [7.1] Building Orientation & Ridge Line
 {ridge_art}
-
-   [7.2] Roof Zone Reference (ASCII Art)
 {zone_art}
 ================================================================================
 """
