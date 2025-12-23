@@ -33,8 +33,10 @@ def load_rail_data():
         return df
     except Exception:
         data = {
-            'Brand': ['Generic', 'SolarRail-X'], 'Model': ['Standard', 'SR-40Heavy'],
-            'Breaking Load (kN)': [5.0, 7.5], 'Test Span (m)': [1.0, 1.2]
+            'Brand': ['Generic', 'SolarRail-X'],
+            'Model': ['Standard', 'SR-40Heavy'],
+            'Breaking Load (kN)': [5.0, 7.5],
+            'Test Span (m)': [1.0, 1.2]
         }
         return pd.DataFrame(data)
 
@@ -99,11 +101,7 @@ rail_brand = st.sidebar.text_input("Brand", def_brand, disabled=dis)
 rail_model = st.sidebar.text_input("Model", def_model, disabled=dis)
 breaking_load = st.sidebar.number_input("Breaking Load (kN)", def_bk, disabled=dis)
 test_span = st.sidebar.number_input("Test Span (m)", def_sp, disabled=dis)
-
-# --- UNLOCKED SAFETY FACTOR ---
-# ปลดล็อก: ไม่ใส่ max_value, min_value ต่ำๆ, step ละเอียด
 safety_factor = st.sidebar.number_input("Safety Factor", value=1.1, min_value=0.001, step=0.01, format="%.3f")
-
 num_spans = st.sidebar.slider("Spans", 1, 5, 2)
 
 # ==========================================
@@ -156,7 +154,7 @@ def plot_fem(res, zone):
     return fig
 
 # ==========================================
-# MAIN LOGIC
+# MAIN LOGIC (WITH SESSION STATE)
 # ==========================================
 if st.button("🚀 Run Analysis"):
     Mn = structural.calculate_Mn(breaking_load, test_span, safety_factor)
@@ -173,11 +171,14 @@ if st.button("🚀 Run Analysis"):
     zones = [{"code": "RA1", "desc": "General Area", "kl": 1.0}, {"code": "RA2", "desc": "Edges/Ridge", "kl": 1.5}, 
              {"code": "RA3", "desc": "Corners", "kl": 2.0}, {"code": "RA4", "desc": "High Suction", "kl": 3.0}]
     
-    results, worst_res, max_p = [], None, -1.0
+    results = []
+    worst_res = None
+    max_p = -1.0
     
     for z in zones:
         p_z = wind_load.calculate_wind_pressure(v_des, base_cpe, ka, kc, z['kl'])
         w_z = p_z * trib_width
+        
         span, fem, history = structural.optimize_span(Mn, w_z, num_spans, max_span=4.0)
         
         rxn = np.abs(fem['reactions'])
@@ -190,11 +191,12 @@ if st.button("🚀 Run Analysis"):
             "Pressure (kPa)": p_z, "Line Load (kN/m)": w_z, "Max Span (m)": span,
             "Reaction (kN)": np.max(rxn), "M* (kNm)": mom, "history": history
         })
+        
         if p_z > max_p:
             max_p = p_z
             worst_res = {'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
-                         'load': w_z, 'moment': mom, 'shear_max': shr, 
-                         'reaction': np.max(rxn), 'rxn_edge': rxn_edge, 'rxn_int': rxn_int}
+                         'load': w_z, 'moment': mom, 'shear_max': shr, 'reaction': np.max(rxn),
+                         'rxn_edge': rxn_edge, 'rxn_int': rxn_int}
 
     st.session_state['results'] = results
     st.session_state['worst_res'] = worst_res
@@ -223,11 +225,24 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     with c1: st.write(f"**Wind 0°:** {w_dat['res0']['cpe']:.2f}"); st.write(f"**Wind 90°:** {w_dat['res90']['cpe']:.2f}"); st.info(f"**Governing:** {w_dat['gov_case']}")
     with c2: st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
-    # 3. Table
-    st.divider(); st.subheader("3. Zone Analysis")
+    # 3. Table (FIXED)
+    st.divider(); st.subheader("3. Zone Analysis Summary")
     df_res = pd.DataFrame(res_list)
+    # Remove history column for display
     df_display = df_res.drop(columns=['history'], errors='ignore')
-    st.dataframe(df_display[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]].style.format("{:.3f}"), use_container_width=True)
+    
+    # Apply format specifically to numeric columns only
+    st.dataframe(
+        df_display.style.format({
+            "Pressure (kPa)": "{:.3f}",
+            "Line Load (kN/m)": "{:.3f}",
+            "Max Span (m)": "{:.2f}",
+            "M* (kNm)": "{:.3f}",
+            "Reaction (kN)": "{:.2f}",
+            "Kl": "{:.1f}"
+        }),
+        use_container_width=True
+    )
 
     # 4. Critical
     st.divider(); st.subheader(f"4. Critical Case: {w_res['zone']}")
@@ -251,8 +266,7 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
         'cpe_0': w_dat['res0']['cpe'], 'ratio_0': w_dat['r0'], 'cpe_90': w_dat['res90']['cpe'], 'ratio_90': w_dat['r90'],
         'governing_case': w_dat['gov_case'], 'note': w_dat['note'], 'trib_width': w_dat['trib_width'], 'ka': ka, 'kc': kc, 'cpe_base': w_dat['base_cpe']
     }
-    struct_dict = {'Mn': s_dat['Mn'], 'break_load': breaking_load, 'test_span': test_span, 'sf': safety_factor}
     
-    rep_text = report.generate_full_report(inp_d, w_d, struct_dict, res_list, w_res)
+    rep_text = report.generate_full_report(inp_d, w_d, s_dat, res_list, w_res)
     st.code(rep_text, language='text')
     st.download_button("💾 Download Full Report", rep_text, "Solar_Rail_Report.txt")
