@@ -47,7 +47,7 @@ df_rails = load_rail_data()
 # SIDEBAR INPUTS
 # ==========================================
 
-# --- 0. PROJECT INFO (NEW) ---
+# --- 0. PROJECT INFO ---
 st.sidebar.header("0. Project Details")
 project_name = st.sidebar.text_input("Project Name", "Solar Rooftop Project")
 project_loc = st.sidebar.text_input("Location", "Bangkok, Thailand")
@@ -238,8 +238,22 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     # 3. Table
     st.divider(); st.subheader("3. Zone Analysis Summary")
     df_res = pd.DataFrame(res_list)
-    df_disp = df_res.drop(columns=['history'], errors='ignore')
-    st.dataframe(df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]].style.format("{:.3f}"), use_container_width=True)
+    
+    # FIX: Remove 'history' column before display to prevent error
+    df_display = df_res.drop(columns=['history'], errors='ignore')
+    
+    # Apply format ONLY to specific numeric columns
+    st.dataframe(
+        df_display.style.format({
+            "Pressure (kPa)": "{:.3f}",
+            "Line Load (kN/m)": "{:.3f}",
+            "Max Span (m)": "{:.2f}",
+            "M* (kNm)": "{:.3f}",
+            "Reaction (kN)": "{:.2f}",
+            "Kl": "{:.1f}"
+        }),
+        use_container_width=True
+    )
 
     # 4. Critical
     st.divider(); st.subheader(f"4. Critical Case: {w_res['zone']}")
