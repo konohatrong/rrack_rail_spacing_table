@@ -15,7 +15,6 @@ st.markdown("""
     .reportview-container .main .block-container{ font-family: 'Tahoma', sans-serif; }
     h1, h2, h3 { font-family: 'Tahoma', sans-serif; }
     div.stButton > button { width: 100%; font-weight: bold; }
-    .stDownloadButton > button { width: 100%; border-color: #4CAF50; color: #4CAF50; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -23,7 +22,7 @@ st.title("🏗️ Solar Rail Design & Analysis (AS/NZS 1170.2:2021)")
 st.markdown("**Structural Engineer & Software Developer:** Aluminum Rail Analysis for Solar PV")
 
 # ==========================================
-# 0. DATA FUNCTIONS
+# DATA LOADING
 # ==========================================
 @st.cache_data
 def load_rail_data():
@@ -33,10 +32,8 @@ def load_rail_data():
         return df
     except Exception:
         data = {
-            'Brand': ['Generic', 'SolarRail-X'],
-            'Model': ['Standard', 'SR-40Heavy'],
-            'Breaking Load (kN)': [5.0, 7.5],
-            'Test Span (m)': [1.0, 1.2]
+            'Brand': ['Generic', 'SolarRail-X'], 'Model': ['Standard', 'SR-40Heavy'],
+            'Breaking Load (kN)': [5.0, 7.5], 'Test Span (m)': [1.0, 1.2]
         }
         return pd.DataFrame(data)
 
@@ -47,12 +44,11 @@ def get_csv_template():
 df_rails = load_rail_data()
 
 # ==========================================
-# SIDEBAR INPUTS
+# SIDEBAR
 # ==========================================
 st.sidebar.header("1. Wind Parameters")
 st.sidebar.markdown("**Step A: Probability (AS/NZS 1170.0)**")
-region_list = ["A0", "A1", "A2", "A3", "A4", "A5", "B1", "B2", "C", "D"]
-region = st.sidebar.selectbox("Wind Region", region_list, index=1)
+region = st.sidebar.selectbox("Wind Region", ["A0", "A1", "A2", "A3", "A4", "A5", "B1", "B2", "C", "D"], index=1)
 imp_level = st.sidebar.selectbox("Importance Level (IL)", [1, 2, 3, 4], index=1)
 design_life = st.sidebar.selectbox("Design Life (Years)", [5, 25, 50, 100], index=2)
 
@@ -106,7 +102,7 @@ safety_factor = st.sidebar.number_input("Safety Factor", 1.1)
 num_spans = st.sidebar.slider("Spans", 1, 5, 2)
 
 # ==========================================
-# VISUALIZATION FUNCTIONS
+# VISUALIZATION FUNCTIONS (Copy from previous or keep as is)
 # ==========================================
 def plot_building_diagram(b, d, r_type):
     fig, ax = plt.subplots(figsize=(5, 3))
@@ -142,31 +138,25 @@ def plot_panel_load(pw, pd, orient, tw):
 
 def plot_fem(res, zone):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
-    # Shear
     ax1.plot(res['x'], res['shear'], 'b-'); ax1.fill_between(res['x'], res['shear'], color='blue', alpha=0.1)
     ax1.set_ylabel("Shear (kN)"); ax1.set_title(f"SFD - {zone}"); ax1.grid(True, ls=':')
-    v_max_idx = np.argmax(np.abs(res['shear'])); v_val = res['shear'][v_max_idx]
-    ax1.plot(res['x'][v_max_idx], v_val, 'ro')
-    ax1.annotate(f"V*={abs(v_val):.2f}", xy=(res['x'][v_max_idx], v_val), xytext=(5,10), textcoords="offset points", color='red', fontweight='bold')
-    # Moment
+    v_max = np.argmax(np.abs(res['shear'])); ax1.plot(res['x'][v_max], res['shear'][v_max], 'ro')
+    ax1.annotate(f"{abs(res['shear'][v_max]):.2f}", xy=(res['x'][v_max], res['shear'][v_max]), xytext=(5,10), textcoords="offset points", color='red', fontweight='bold')
+    
     ax2.plot(res['x'], res['moment'], 'r-'); ax2.fill_between(res['x'], res['moment'], color='red', alpha=0.1)
     ax2.set_ylabel("Moment (kNm)"); ax2.set_title(f"BMD - {zone}"); ax2.grid(True, ls=':')
-    m_max_idx = np.argmax(np.abs(res['moment'])); m_val = res['moment'][m_max_idx]
-    ax2.plot(res['x'][m_max_idx], m_val, 'bo')
-    ax2.annotate(f"M*={abs(m_val):.2f}", xy=(res['x'][m_max_idx], m_val), xytext=(5,10), textcoords="offset points", color='blue', fontweight='bold')
+    m_max = np.argmax(np.abs(res['moment'])); ax2.plot(res['x'][m_max], res['moment'][m_max], 'bo')
+    ax2.annotate(f"{abs(res['moment'][m_max]):.2f}", xy=(res['x'][m_max], res['moment'][m_max]), xytext=(5,10), textcoords="offset points", color='blue', fontweight='bold')
     plt.tight_layout()
     return fig
 
 # ==========================================
-# MAIN LOGIC (WITH SESSION STATE)
+# MAIN LOGIC
 # ==========================================
-
-# ปุ่ม Run จะทำการคำนวณและบันทึกผลลง Session State
 if st.button("🚀 Run Analysis"):
     Mn = structural.calculate_Mn(breaking_load, test_span, safety_factor)
     trib_width = wind_load.calculate_tributary_width(panel_w, panel_d, orient_key)
     
-    # Wind Calc
     r0 = b_height / b_depth; res0 = wind_load.solve_cpe_for_ratio(roof_angle, roof_type, r0)
     r90 = b_height / b_width; res90 = wind_load.solve_cpe_for_ratio(roof_angle, roof_type, r90)
     
@@ -175,7 +165,6 @@ if st.button("🚀 Run Analysis"):
     else:
         base_cpe, gov_case, note = res90['cpe'], f"Wind 90° (h/b={r90:.2f})", "Wind 90° is critical"
 
-    # Zone Loop
     zones = [{"code": "RA1", "desc": "General Area", "kl": 1.0}, {"code": "RA2", "desc": "Edges/Ridge", "kl": 1.5}, 
              {"code": "RA3", "desc": "Corners", "kl": 2.0}, {"code": "RA4", "desc": "High Suction", "kl": 3.0}]
     
@@ -186,13 +175,16 @@ if st.button("🚀 Run Analysis"):
     for z in zones:
         p_z = wind_load.calculate_wind_pressure(v_des, base_cpe, ka, kc, z['kl'])
         w_z = p_z * trib_width
-        span, fem = structural.optimize_span(Mn, w_z, num_spans, max_span=4.0)
+        
+        # UPDATED: Unpack 3 values (span, fem_res, history)
+        span, fem, history = structural.optimize_span(Mn, w_z, num_spans, max_span=4.0)
+        
         rxn, mom, shr = np.max(np.abs(fem['reactions'])), fem['max_moment'], np.max(np.abs(fem['shear']))
         
         results.append({
             "Zone": z['code'], "Description": z['desc'], "Kl": z['kl'],
             "Pressure (kPa)": p_z, "Line Load (kN/m)": w_z, "Max Span (m)": span,
-            "Reaction (kN)": rxn, "M* (kNm)": mom
+            "Reaction (kN)": rxn, "M* (kNm)": mom, "history": history # Save history
         })
         
         if p_z > max_p:
@@ -200,94 +192,56 @@ if st.button("🚀 Run Analysis"):
             worst_res = {'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
                          'load': w_z, 'moment': mom, 'shear_max': shr, 'reaction': rxn}
 
-    # Save to Session State (เพื่อไม่ให้ค่าหายตอนกด Download)
+    # Save to session state
     st.session_state['results'] = results
     st.session_state['worst_res'] = worst_res
-    st.session_state['wind_data'] = {
-        'res0': res0, 'r0': r0, 'res90': res90, 'r90': r90, 
-        'gov_case': gov_case, 'note': note, 'base_cpe': base_cpe, 'trib_width': trib_width
-    }
-    st.session_state['struct_data'] = {'Mn': Mn}
+    st.session_state['wind_data'] = {'res0': res0, 'r0': r0, 'res90': res90, 'r90': r90, 'gov_case': gov_case, 'note': note, 'base_cpe': base_cpe, 'trib_width': trib_width}
+    st.session_state['struct_data'] = {'Mn': Mn, 'break_load': breaking_load, 'test_span': test_span, 'sf': safety_factor}
     st.session_state['has_run'] = True
 
 # ==========================================
-# DISPLAY & REPORT (Check Session State)
+# OUTPUT
 # ==========================================
 if 'has_run' in st.session_state and st.session_state['has_run']:
-    # Retrieve Data
-    results = st.session_state['results']
-    worst_res = st.session_state['worst_res']
+    res_list = st.session_state['results']
+    w_res = st.session_state['worst_res']
     w_dat = st.session_state['wind_data']
     s_dat = st.session_state['struct_data']
+
+    st.divider(); st.header("📊 Analysis Report Summary")
     
-    st.divider()
-    st.header("📊 Analysis Report Summary")
-    
-    # 1. INPUT & GEOMETRY
-    st.subheader("1. Input Summary")
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        st.write(f"**Rail:** {rail_brand} ({rail_model})")
-        st.write(f"**Region:** {region} (Vr={vr} m/s)")
-        st.write(f"**Prob:** IL-{imp_level}, Life {design_life}y (1/{ret_period})")
-        st.write(f"**Vdes:** {v_des:.2f} m/s")
-    with c2:
-        st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
+    # 1. Input
+    st.subheader("1. Input Summary"); c1, c2 = st.columns([1, 1])
+    with c1: st.write(f"**Rail:** {rail_brand}"); st.write(f"**Vdes:** {v_des:.2f} m/s"); st.write(f"**Mn:** {s_dat['Mn']:.3f} kNm")
+    with c2: st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
 
-    # 2. WIND
-    st.divider()
-    st.subheader("2. Wind & Load Analysis")
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        st.write(f"**Wind 0°:** Cpe={w_dat['res0']['cpe']:.2f} (h/d={w_dat['r0']:.2f})")
-        st.write(f"**Wind 90°:** Cpe={w_dat['res90']['cpe']:.2f} (h/b={w_dat['r90']:.2f})")
-        st.info(f"**Governing:** {w_dat['gov_case']}")
-    with c2:
-        st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
+    # 2. Wind
+    st.divider(); st.subheader("2. Wind Analysis"); c1, c2 = st.columns([1, 1])
+    with c1: st.write(f"**Gov Case:** {w_dat['gov_case']}"); st.write(f"**Base Cpe:** {w_dat['base_cpe']:.2f}")
+    with c2: st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
-    # 3. ZONES
-    st.divider()
-    st.subheader("3. Zone Analysis (RA1-RA4)")
-    df_res = pd.DataFrame(results)
-    st.dataframe(df_res.style.format("{:.3f}", subset=["Pressure (kPa)","Line Load (kN/m)","Max Span (m)","Reaction (kN)","M* (kNm)"])
-                 .highlight_max(["Pressure (kPa)"], color='#ffcccc'), use_container_width=True)
+    # 3. Table
+    st.divider(); st.subheader("3. Zone Analysis"); df_res = pd.DataFrame(res_list)
+    st.dataframe(df_res[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]].style.format("{:.3f}"), use_container_width=True)
 
-    # 4. CRITICAL
-    st.divider()
-    st.subheader(f"4. Critical Case: {worst_res['zone']}")
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        st.metric("M* (Moment)", f"{worst_res['moment']:.3f} kNm")
-        st.metric("V* (Shear)", f"{worst_res['shear_max']:.3f} kN")
-        st.metric("Max Reaction", f"{worst_res['reaction']:.3f} kN")
-        st.caption(f"At Max Span: {worst_res['span']:.2f} m")
-    with c2:
-        st.pyplot(plot_fem(worst_res['fem'], worst_res['zone']))
+    # 4. Critical
+    st.divider(); st.subheader(f"4. Critical Case: {w_res['zone']}"); c1, c2 = st.columns([1, 2])
+    with c1: st.metric("M*", f"{w_res['moment']:.3f}"); st.metric("Max Span", f"{w_res['span']:.2f} m")
+    with c2: st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
 
-    # REPORT GENERATION
-    st.divider()
-    st.header("📄 Plain Text Report")
-    
-    input_dict = {
-        'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 
-        'imp_level': imp_level, 'design_life': design_life, 'ret_period': ret_period, 
-        'vr': vr, 'v_des': v_des, 'md': md, 'ms': ms, 'mt': mt, 'mz_cat': mz_cat, 
-        'tc': tc, 'b_width': b_width, 'b_depth': b_depth, 'b_height': b_height, 
-        'roof_type': roof_type, 'roof_angle': roof_angle,
+    # Report Generation
+    st.divider(); st.header("📄 Plain Text Report")
+    inp_d = {
+        'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
+        'ret_period': ret_period, 'vr': vr, 'v_des': v_des, 'md': md, 'ms': ms, 'mt': mt, 'mz_cat': mz_cat, 'tc': tc,
+        'b_width': b_width, 'b_depth': b_depth, 'b_height': b_height, 'roof_type': roof_type, 'roof_angle': roof_angle,
         'panel_w': panel_w, 'panel_d': panel_d
     }
-    
-    wind_dict_rep = {
-        'cpe_0': w_dat['res0']['cpe'], 'ratio_0': w_dat['r0'], 
-        'cpe_90': w_dat['res90']['cpe'], 'ratio_90': w_dat['r90'], 
-        'governing_case': w_dat['gov_case'], 'note': w_dat['note'],
-        'trib_width': w_dat['trib_width'], 'ka': ka, 'kc': kc, 'cpe_base': w_dat['base_cpe']
+    w_d = {
+        'cpe_0': w_dat['res0']['cpe'], 'ratio_0': w_dat['r0'], 'cpe_90': w_dat['res90']['cpe'], 'ratio_90': w_dat['r90'],
+        'governing_case': w_dat['gov_case'], 'note': w_dat['note'], 'trib_width': w_dat['trib_width'], 'ka': ka, 'kc': kc, 'cpe_base': w_dat['base_cpe']
     }
     
-    struct_dict_rep = {'Mn': s_dat['Mn'], 'break_load': breaking_load, 'test_span': test_span, 'sf': safety_factor}
-    
-    # Generate Text
-    report_text = report.generate_full_report(input_dict, wind_dict_rep, struct_dict_rep, results, worst_res)
-    
-    st.code(report_text, language='text')
-    st.download_button("💾 Download Full Report", report_text, "Solar_Rail_Report.txt")
+    rep_text = report.generate_full_report(inp_d, w_d, s_dat, res_list, w_res)
+    st.code(rep_text, language='text')
+    st.download_button("💾 Download Full Report", rep_text, "Solar_Rail_Report.txt")
