@@ -15,6 +15,7 @@ st.markdown("""
     .reportview-container .main .block-container{ font-family: 'Tahoma', sans-serif; }
     h1, h2, h3 { font-family: 'Tahoma', sans-serif; }
     div.stButton > button { width: 100%; font-weight: bold; }
+    .stDownloadButton > button { width: 100%; border-color: #4CAF50; color: #4CAF50; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -22,7 +23,7 @@ st.title("🏗️ Solar Rail Design & Analysis (AS/NZS 1170.2:2021)")
 st.markdown("**Structural Engineer & Software Developer:** Aluminum Rail Analysis for Solar PV")
 
 # ==========================================
-# DATA LOADING
+# 0. DATA FUNCTIONS
 # ==========================================
 @st.cache_data
 def load_rail_data():
@@ -32,8 +33,10 @@ def load_rail_data():
         return df
     except Exception:
         data = {
-            'Brand': ['Generic', 'SolarRail-X'], 'Model': ['Standard', 'SR-40Heavy'],
-            'Breaking Load (kN)': [5.0, 7.5], 'Test Span (m)': [1.0, 1.2]
+            'Brand': ['Generic', 'SolarRail-X'],
+            'Model': ['Standard', 'SR-40Heavy'],
+            'Breaking Load (kN)': [5.0, 7.5],
+            'Test Span (m)': [1.0, 1.2]
         }
         return pd.DataFrame(data)
 
@@ -44,7 +47,7 @@ def get_csv_template():
 df_rails = load_rail_data()
 
 # ==========================================
-# SIDEBAR
+# SIDEBAR INPUTS
 # ==========================================
 st.sidebar.header("1. Wind Parameters")
 st.sidebar.markdown("**Step A: Probability (AS/NZS 1170.0)**")
@@ -102,7 +105,7 @@ safety_factor = st.sidebar.number_input("Safety Factor", 1.1)
 num_spans = st.sidebar.slider("Spans", 1, 5, 2)
 
 # ==========================================
-# VISUALIZATION FUNCTIONS (Copy from previous or keep as is)
+# VISUALIZATION FUNCTIONS
 # ==========================================
 def plot_building_diagram(b, d, r_type):
     fig, ax = plt.subplots(figsize=(5, 3))
@@ -138,6 +141,7 @@ def plot_panel_load(pw, pd, orient, tw):
 
 def plot_fem(res, zone):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
+    # Shear
     ax1.plot(res['x'], res['shear'], 'b-'); ax1.fill_between(res['x'], res['shear'], color='blue', alpha=0.1)
     ax1.set_ylabel("Shear (kN)"); ax1.set_title(f"SFD - {zone}"); ax1.grid(True, ls=':')
     v_max = np.argmax(np.abs(res['shear'])); ax1.plot(res['x'][v_max], res['shear'][v_max], 'ro')
@@ -176,7 +180,7 @@ if st.button("🚀 Run Analysis"):
         p_z = wind_load.calculate_wind_pressure(v_des, base_cpe, ka, kc, z['kl'])
         w_z = p_z * trib_width
         
-        # UPDATED: Unpack 3 values (span, fem_res, history)
+        # Unpack 3 values (span, fem_res, history)
         span, fem, history = structural.optimize_span(Mn, w_z, num_spans, max_span=4.0)
         
         rxn, mom, shr = np.max(np.abs(fem['reactions'])), fem['max_moment'], np.max(np.abs(fem['shear']))
@@ -184,7 +188,7 @@ if st.button("🚀 Run Analysis"):
         results.append({
             "Zone": z['code'], "Description": z['desc'], "Kl": z['kl'],
             "Pressure (kPa)": p_z, "Line Load (kN/m)": w_z, "Max Span (m)": span,
-            "Reaction (kN)": rxn, "M* (kNm)": mom, "history": history # Save history
+            "Reaction (kN)": rxn, "M* (kNm)": mom, "history": history
         })
         
         if p_z > max_p:
@@ -217,12 +221,20 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
 
     # 2. Wind
     st.divider(); st.subheader("2. Wind Analysis"); c1, c2 = st.columns([1, 1])
-    with c1: st.write(f"**Gov Case:** {w_dat['gov_case']}"); st.write(f"**Base Cpe:** {w_dat['base_cpe']:.2f}")
+    with c1: st.write(f"**Wind 0°:** {w_dat['res0']['cpe']:.2f}"); st.write(f"**Wind 90°:** {w_dat['res90']['cpe']:.2f}"); st.info(f"**Governing:** {w_dat['gov_case']}")
     with c2: st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
-    # 3. Table
-    st.divider(); st.subheader("3. Zone Analysis"); df_res = pd.DataFrame(res_list)
-    st.dataframe(df_res[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]].style.format("{:.3f}"), use_container_width=True)
+    # 3. Table (Fixed Styling Error)
+    st.divider(); st.subheader("3. Zone Analysis")
+    df_res = pd.DataFrame(res_list)
+    st.dataframe(
+        df_res.style
+        .format("{:.3f}", subset=["Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "Reaction (kN)", "M* (kNm)"])
+        .format("{:.1f}", subset=["Kl"])
+        .highlight_max(subset=["Pressure (kPa)", "Reaction (kN)", "M* (kNm)"], color='#ffcccc')
+        .highlight_min(subset=["Max Span (m)"], color='#ffcccc'),
+        use_container_width=True
+    )
 
     # 4. Critical
     st.divider(); st.subheader(f"4. Critical Case: {w_res['zone']}"); c1, c2 = st.columns([1, 2])
@@ -235,7 +247,7 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
         'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
         'ret_period': ret_period, 'vr': vr, 'v_des': v_des, 'md': md, 'ms': ms, 'mt': mt, 'mz_cat': mz_cat, 'tc': tc,
         'b_width': b_width, 'b_depth': b_depth, 'b_height': b_height, 'roof_type': roof_type, 'roof_angle': roof_angle,
-        'panel_w': panel_w, 'panel_d': panel_d
+        'panel_w': panel_w, 'panel_d': panel_d, 'num_spans': num_spans
     }
     w_d = {
         'cpe_0': w_dat['res0']['cpe'], 'ratio_0': w_dat['r0'], 'cpe_90': w_dat['res90']['cpe'], 'ratio_90': w_dat['r90'],
