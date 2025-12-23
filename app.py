@@ -1,11 +1,12 @@
 import streamlit as st
 import structural
 import wind_load
-import report  # ใช้ report.py ตัวที่คุณชอบได้เลย
+import report
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import pandas as pd
+import datetime  # เพิ่ม library สำหรับจัดการวันที่
 
 # Set page configuration
 st.set_page_config(page_title="Solar Rail Design (AS/NZS 1170.2)", layout="wide")
@@ -193,13 +194,9 @@ if st.button("🚀 Run Analysis"):
         })
         if p_z > max_p:
             max_p = p_z
-            # --- FIX: ใส่ 'reaction' เพื่อให้ report.py หาเจอ ---
-            worst_res = {
-                'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
-                'load': w_z, 'moment': mom, 'shear_max': shr, 
-                'reaction': np.max(rxn),  # <--- ใส่ Key นี้เพิ่ม
-                'rxn_edge': rxn_edge, 'rxn_int': rxn_int
-            }
+            worst_res = {'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
+                         'load': w_z, 'moment': mom, 'shear_max': shr, 
+                         'reaction': np.max(rxn), 'rxn_edge': rxn_edge, 'rxn_int': rxn_int}
 
     st.session_state['results'] = results
     st.session_state['worst_res'] = worst_res
@@ -218,7 +215,7 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
 
     st.divider(); st.header("📊 Analysis Report Summary")
     
-    # --- 1. VERIFICATION ---
+    # 1. Verification
     st.subheader("1. Detailed Input Verification")
     st.markdown('<div class="calculation-box">', unsafe_allow_html=True)
     st.markdown(f"**Design Wind Speed ($V_{{des}}$): {v_des:.2f} m/s**")
@@ -238,7 +235,7 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
 
     st.divider()
 
-    # --- 2. WIND ---
+    # 2. Wind
     st.subheader("2. Wind Analysis ($C_{p,e}$ Selection)")
     st.markdown('<div class="info-box">', unsafe_allow_html=True)
     st.markdown("#### External Pressure Coefficient ($C_{p,e}$)")
@@ -252,7 +249,7 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
         st.write(f"- h/b Ratio: {b_height}/{b_width} = **{w_dat['r90']:.2f}**")
         st.write(f"- Cpe: **{w_dat['res90']['cpe']:.2f}**")
         
-    st.warning(f"**Selected Governing Case:** {w_dat['gov_case']}")
+    st.warning(f"**Selected Governing Case:** {w_dat['gov_case']} (Most critical suction)")
     st.markdown('</div>', unsafe_allow_html=True)
     
     c_trib1, c_trib2 = st.columns([1, 1])
@@ -264,12 +261,11 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     with c_trib2:
         st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
-    # --- 3. TABLE (FIXED FORMATTING) ---
+    # 3. Table
     st.divider(); st.subheader("3. Zone Analysis Summary")
     df_res = pd.DataFrame(res_list)
     df_disp = df_res.drop(columns=['history'], errors='ignore')
     
-    # Apply format specifically to numeric columns only
     st.dataframe(
         df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]]
         .style.format({
@@ -282,11 +278,11 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
         use_container_width=True
     )
 
-    # --- 4. CRITICAL CASE ---
+    # 4. Critical
     st.divider(); st.subheader(f"4. Critical Case Analysis ({w_res['zone']})")
     
     col_crit1, col_crit2 = st.columns([1, 2])
-    with col_crit1:
+    with c_crit1:
         st.markdown("### Design Values")
         st.metric("Max Span", f"{w_res['span']:.2f} m")
         st.metric("Design Moment (M*)", f"{w_res['moment']:.3f} kNm")
@@ -299,8 +295,9 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     with col_crit2:
         st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
 
-    # --- REPORT GENERATION ---
+    # REPORT GENERATION
     st.divider(); st.header("📄 Plain Text & PDF Report")
+    
     inp_d = {
         'project_name': project_name, 'project_location': project_loc, 'engineer': engineer_name,
         'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
@@ -313,16 +310,20 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
         'governing_case': w_dat['gov_case'], 'note': w_dat['note'], 'trib_width': w_dat['trib_width'], 'ka': ka, 'kc': kc, 'cpe_base': w_dat['base_cpe']
     }
     
-    # Generate Reports
     rep_text = report.generate_full_report(inp_d, w_d, s_dat, res_list, w_res)
     
+    # FILENAME GENERATION
+    clean_proj_name = project_name.strip().replace(" ", "_") if project_name else "Solar_Project"
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    fname = f"{clean_proj_name}_Report_{date_str}"
+
     col_d1, col_d2 = st.columns(2)
     with col_d1:
-        st.download_button("💾 Download Text Report", rep_text, "Solar_Rail_Report.txt")
+        st.download_button("💾 Download Text Report", rep_text, f"{fname}.txt")
     with col_d2:
         try:
             pdf_bytes = report.create_pdf_report(rep_text)
-            st.download_button("💾 Download PDF Report", pdf_bytes, "Solar_Rail_Report.pdf", mime="application/pdf")
+            st.download_button("💾 Download PDF Report", pdf_bytes, f"{fname}.pdf", mime="application/pdf")
         except Exception as e:
             st.error(f"PDF Gen Error: {e} (Require fpdf2)")
 
