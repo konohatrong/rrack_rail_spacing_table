@@ -193,8 +193,10 @@ if st.button("🚀 Run Analysis"):
         })
         if p_z > max_p:
             max_p = p_z
+            # --- FIX: ADD 'reaction' KEY HERE ---
             worst_res = {'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
                          'load': w_z, 'moment': mom, 'shear_max': shr, 
+                         'reaction': np.max(rxn),  # <--- Added Missing Key
                          'rxn_edge': rxn_edge, 'rxn_int': rxn_int}
 
     st.session_state['results'] = results
@@ -260,12 +262,12 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     with c_trib2:
         st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
-    # 3. Table (FIXED)
+    # 3. Table
     st.divider(); st.subheader("3. Zone Analysis Summary")
     df_res = pd.DataFrame(res_list)
     df_disp = df_res.drop(columns=['history'], errors='ignore')
     
-    # FIX: Apply Dictionary Formatting
+    # Format specific numeric columns
     st.dataframe(
         df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]]
         .style.format({
@@ -302,5 +304,15 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     }
     
     rep_text = report.generate_full_report(inp_d, w_d, s_dat, res_list, w_res)
+    
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        st.download_button("💾 Download Text Report", rep_text, "Solar_Rail_Report.txt")
+    with col_d2:
+        try:
+            pdf_bytes = report.create_pdf_report(rep_text)
+            st.download_button("💾 Download PDF Report", pdf_bytes, "Solar_Rail_Report.pdf", mime="application/pdf")
+        except Exception as e:
+            st.error(f"PDF Gen Error: {e} (Require fpdf2)")
+
     st.code(rep_text, language='text')
-    st.download_button("💾 Download Full Report", rep_text, "Solar_Rail_Report.txt")
