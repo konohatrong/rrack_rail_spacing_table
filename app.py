@@ -195,7 +195,7 @@ if st.button("🚀 Run Analysis"):
             max_p = p_z
             worst_res = {'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
                          'load': w_z, 'moment': mom, 'shear_max': shr, 
-                         'reaction': np.max(rxn), 'rxn_edge': rxn_edge, 'rxn_int': rxn_int}
+                         'rxn_edge': rxn_edge, 'rxn_int': rxn_int}
 
     st.session_state['results'] = results
     st.session_state['worst_res'] = worst_res
@@ -221,28 +221,65 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     st.markdown(f"- Formula: $V_R \cdot M_d \cdot (M_{{z,cat}} \cdot M_s \cdot M_t)$")
     st.markdown(f"- Subst: {vr} * {md} * ({mz_cat:.2f} * {ms} * {mt})")
     st.markdown('</div>', unsafe_allow_html=True)
-    c1, c2 = st.columns([1, 1])
-    with c1: st.write(f"**Rail:** {rail_brand}"); st.write(f"**Mn:** {s_dat['Mn']:.3f} kNm")
-    with c2: st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
+    
+    c_geo1, c_geo2 = st.columns([1, 1])
+    with c_geo1:
+        st.markdown("#### Geometry & Capacity")
+        st.write(f"- **Rail Model:** {rail_brand} ({rail_model})")
+        st.write(f"- **Capacity (Mn):** {s_dat['Mn']:.3f} kNm")
+        st.write(f"- **Building:** {b_width}x{b_depth}x{b_height}m")
+        st.write(f"- **Roof:** {roof_type} @ {roof_angle}°")
+    with c_geo2:
+        st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
+
+    st.divider()
 
     # 2. Wind
-    st.divider(); st.subheader("2. Wind Analysis ($C_{p,e}$ Selection)")
+    st.subheader("2. Wind Analysis ($C_{p,e}$ Selection)")
     st.markdown('<div class="info-box">', unsafe_allow_html=True)
-    st.write(f"**Roof:** {roof_type} @ {roof_angle}°")
-    st.write(f"- Wind 0° (Normal): h/d={w_dat['r0']:.2f} -> Cpe={w_dat['res0']['cpe']:.2f}")
-    st.write(f"- Wind 90° (Parallel): h/b={w_dat['r90']:.2f} -> Cpe={w_dat['res90']['cpe']:.2f}")
-    st.warning(f"**Governing:** {w_dat['gov_case']}")
+    st.markdown("#### External Pressure Coefficient ($C_{p,e}$)")
+    w1, w2 = st.columns(2)
+    with w1:
+        st.write("**Case 1: Wind 0° (Normal)**")
+        st.write(f"- h/d Ratio: {b_height}/{b_depth} = **{w_dat['r0']:.2f}**")
+        st.write(f"- Cpe: **{w_dat['res0']['cpe']:.2f}**")
+    with w2:
+        st.write("**Case 2: Wind 90° (Parallel)**")
+        st.write(f"- h/b Ratio: {b_height}/{b_width} = **{w_dat['r90']:.2f}**")
+        st.write(f"- Cpe: **{w_dat['res90']['cpe']:.2f}**")
+        
+    st.warning(f"**Selected Governing Case:** {w_dat['gov_case']} (Most critical suction)")
     st.markdown('</div>', unsafe_allow_html=True)
-    st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
+    
+    c_trib1, c_trib2 = st.columns([1, 1])
+    with c_trib1:
+        st.markdown("#### Load Parameters")
+        st.write(f"- **Tributary Width:** {w_dat['trib_width']:.3f} m")
+        st.write(f"- **Ka (Area Red.):** {ka}")
+        st.write(f"- **Kc (Comb.):** {kc}")
+    with c_trib2:
+        st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
-    # 3. Table
+    # 3. Table (FIXED)
     st.divider(); st.subheader("3. Zone Analysis Summary")
     df_res = pd.DataFrame(res_list)
     df_disp = df_res.drop(columns=['history'], errors='ignore')
-    st.dataframe(df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]].style.format("{:.3f}"), use_container_width=True)
+    
+    # FIX: Apply Dictionary Formatting
+    st.dataframe(
+        df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]]
+        .style.format({
+            "Pressure (kPa)": "{:.3f}",
+            "Line Load (kN/m)": "{:.3f}",
+            "Max Span (m)": "{:.2f}",
+            "M* (kNm)": "{:.3f}",
+            "Reaction (kN)": "{:.2f}"
+        }),
+        use_container_width=True
+    )
 
     # 4. Critical
-    st.divider(); st.subheader(f"4. Critical Case: {w_res['zone']}")
+    st.divider(); st.subheader(f"4. Critical Case Analysis ({w_res['zone']})")
     c1, c2 = st.columns([1, 2])
     with c1: 
         st.metric("Max Span", f"{w_res['span']:.2f} m")
@@ -252,7 +289,6 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
 
     # Report
     st.divider(); st.header("📄 Plain Text & PDF Report")
-    
     inp_d = {
         'project_name': project_name, 'project_location': project_loc, 'engineer': engineer_name,
         'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
@@ -265,18 +301,6 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
         'governing_case': w_dat['gov_case'], 'note': w_dat['note'], 'trib_width': w_dat['trib_width'], 'ka': ka, 'kc': kc, 'cpe_base': w_dat['base_cpe']
     }
     
-    # Generate Text Report
-    rep_text = report.generate_full_report_text(inp_d, w_d, s_dat, res_list, w_res)
-    
-    # Buttons
-    c_btn1, c_btn2 = st.columns(2)
-    with c_btn1:
-        st.download_button("💾 Download Text Report", rep_text, "Solar_Rail_Report.txt")
-    with c_btn2:
-        try:
-            pdf_bytes = report.create_pdf_report(rep_text)
-            st.download_button("💾 Download PDF Report", pdf_bytes, "Solar_Rail_Report.pdf", mime="application/pdf")
-        except Exception as e:
-            st.error(f"PDF Gen Error: {e} (Make sure fpdf2 is installed)")
-
+    rep_text = report.generate_full_report(inp_d, w_d, s_dat, res_list, w_res)
     st.code(rep_text, language='text')
+    st.download_button("💾 Download Full Report", rep_text, "Solar_Rail_Report.txt")
