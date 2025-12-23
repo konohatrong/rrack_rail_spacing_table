@@ -6,11 +6,8 @@ import datetime
 # ASCII ART ASSETS
 # ==========================================
 def get_report_logo():
-    """
-    Returns the custom ASCII Art Logo from ascii-art.txt
-    """
     return r"""
-         3555555555537      14444445537            5957            7325464523   541      7352     735666451  12237      
+3555555555537      14444445537            5957            7325464523   541      7352     735666451  12237      
          266666666666657    309222225905          30002          3908652225693  983     1985    76865333342 733371   
          266643333466664    3047     7605        1901981       79041            903    4067     891         723321      
          266657    466663   3047      209         502 389      1803              903  3881      1091                     
@@ -25,7 +22,6 @@ def get_report_logo():
     """
 
 def get_ascii_ridge_diagram(b, d, r_type):
-    """Generates ASCII diagram for Building Orientation & Ridge Line"""
     if "Gable" in r_type:
         return f"""
        Wind 0 deg (Normal/Transverse)
@@ -51,7 +47,6 @@ def get_ascii_ridge_diagram(b, d, r_type):
         """
 
 def get_ascii_art(zone_code):
-    """Returns ASCII art for specific roof zones"""
     if zone_code == "RA1": 
         return """
       +-----------------------------+
@@ -83,82 +78,52 @@ def get_ascii_art(zone_code):
     return ""
 
 def format_iteration_table(history, zone_name):
-    """Formats the last 10 steps of the iteration history."""
     if not history or len(history) == 0: 
         return f"   [No iteration history recorded for {zone_name}]"
-    
-    # Get last 10 steps
     steps = history[-10:]
-    
     header = f"   >> Iteration Log for {zone_name} (Last {len(steps)} Steps):"
     table_header =  "   |  Span (m)  |  M* (kNm)  | Util (%) | Status |"
     divider =       "   |------------|------------|----------|--------|"
-    
     rows = []
     for step in steps:
-        # Use .get() to safely access dictionary keys
-        sp = step.get('span', 0.0)
-        ms = step.get('m_star', 0.0)
-        ut = step.get('util', 0.0)
-        st = step.get('status', '-')
+        sp = step.get('span', 0.0); ms = step.get('m_star', 0.0)
+        ut = step.get('util', 0.0); st = step.get('status', '-')
         rows.append(f"   |   {sp:.3f}    |   {ms:.3f}    |   {ut:.1f}   |   {st}   |")
-        
     return f"{header}\n{table_header}\n{divider}\n" + "\n".join(rows) + "\n"
 
+# ==========================================
+# MAIN REPORT GENERATOR
+# ==========================================
 def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_res):
-    """
-    Main function to generate the detailed plain text report.
-    """
     
-    # 1. Format Summary Table (Clean Data)
+    # 1. Format Tables
     df_res = pd.DataFrame(zone_results)
-    
-    # Drop history column if exists (to keep the summary table clean)
     df_clean = df_res.drop(columns=['history'], errors='ignore')
-    
     if 'Utilization' not in df_clean.columns:
          df_clean['Utilization'] = (df_clean['M* (kNm)'] / struct_res['Mn']) * 100
 
-    table_str = df_clean.to_string(
-        index=False, 
-        justify="right", 
-        float_format=lambda x: "{:.3f}".format(x) if isinstance(x, (float, np.floating)) else str(x)
-    )
+    table_str = df_clean.to_string(index=False, justify="right", float_format=lambda x: "{:.3f}".format(x) if isinstance(x, (float, np.floating)) else str(x))
     
-    # 2. Generate Iteration Logs
     iteration_logs = ""
     for z in zone_results:
-        # Check if history exists
         hist = z.get('history', [])
-        iteration_logs += format_iteration_table(hist, z.get('Zone', 'Unknown'))
-        iteration_logs += "\n"
+        iteration_logs += format_iteration_table(hist, z.get('Zone', 'Unknown')) + "\n"
 
-    # 3. Generate Visuals
     ridge_art = get_ascii_ridge_diagram(inputs['b_width'], inputs['b_depth'], inputs['roof_type'])
     zone_art = ""
     for z in zone_results:
-        zone_art += f"\n   ZONE {z.get('Zone')} ({z.get('Description')}):\n"
-        zone_art += get_ascii_art(z.get('Zone'))
+        zone_art += f"\n   ZONE {z.get('Zone')} ({z.get('Description')}):\n" + get_ascii_art(z.get('Zone'))
 
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logo = get_report_logo()
 
-    # --- Detailed Calculation breakdown ---
+    # --- Calculation Blocks ---
     step_vdes = f"""
     1. Design Wind Speed (Vdes) Calculation:
        Ref: AS/NZS 1170.2 Eq. 2.2
-       Formula: V_des = Vr * Md * (Mz,cat * Ms * Mt)
-       
-       Substitution:
-       - Vr (Region {inputs['region']}, R=1/{inputs['ret_period']}yr): {inputs['vr']} m/s
-       - Md (Direction): {inputs['md']}
-       - Mz,cat (Cat {inputs['tc']}, z={inputs['b_height']}m): {inputs['mz_cat']:.2f}
-       - Ms (Shielding): {inputs['ms']}
-       - Mt (Topographic): {inputs['mt']}
-       
-       Calculation:
+       V_des = Vr * Md * (Mz,cat * Ms * Mt)
        V_des = {inputs['vr']} * {inputs['md']} * ({inputs['mz_cat']:.2f} * {inputs['ms']} * {inputs['mt']})
-             = {inputs['v_des']:.2f} m/s
+       V_des = {inputs['v_des']:.2f} m/s
     """
 
     step_cpe = f"""
@@ -166,13 +131,8 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
        Ref: AS/NZS 1170.2 Section 5.3
        Roof Type: {inputs['roof_type']} (Angle: {inputs['roof_angle']} deg)
        
-       [Check 1] Wind 0 deg (Normal to Ridge):
-       - Ratio h/d = {inputs['b_height']}/{inputs['b_depth']} = {wind_res['ratio_0']:.2f}
-       - Interpolated Cpe = {wind_res['cpe_0']:.2f}
-       
-       [Check 2] Wind 90 deg (Parallel to Ridge):
-       - Ratio h/b = {inputs['b_height']}/{inputs['b_width']} = {wind_res['ratio_90']:.2f}
-       - Interpolated Cpe = {wind_res['cpe_90']:.2f}
+       [Check 1] Wind 0 deg (Normal): h/d={wind_res['ratio_0']:.2f} -> Cpe={wind_res['cpe_0']:.2f}
+       [Check 2] Wind 90 deg (Parallel): h/b={wind_res['ratio_90']:.2f} -> Cpe={wind_res['cpe_90']:.2f}
        
        >> GOVERNING CASE: {wind_res['governing_case']}
        >> BASE Cpe: {wind_res['cpe_base']:.2f}
@@ -180,20 +140,14 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 
     step_load = f"""
     3. Design Pressure & Line Load:
-       Formula: p = 0.5 * rho * Vdes^2 * Cfig * Cdyn
-       
-       Parameters:
-       - Tributary Width:        {wind_res['trib_width']:.3f} m
-       - Area Reduction (Ka):    {wind_res['ka']}
-       - Combination Factor (Kc):{wind_res['kc']}
-       
-       (Note: Cfig = Cpe * Ka * Kc * Kl * Kp)
+       p = 0.5 * rho * Vdes^2 * Cfig * Cdyn
+       w = p * Tributary_Width ({wind_res['trib_width']:.3f} m)
+       (Ka={wind_res['ka']}, Kc={wind_res['kc']})
     """
 
     step_optimization = f"""
     4. Span Optimization (Iterative FEM)
        Objective: Find Max Span (L) where M* <= Mn ({struct_res['Mn']:.3f} kNm)
-       Method: Finite Element Analysis (Matrix Stiffness Method)
        Logic: Incremental Span check (step 0.05m)
     """
 
@@ -226,8 +180,8 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 {step_load}
 {step_optimization}
 
-[3] SPAN OPTIMIZATION LOGS (LAST 10 STEPS PER ZONE)
----------------------------------------------------
+[3] SPAN OPTIMIZATION LOGS (LAST 10 STEPS)
+------------------------------------------
 {iteration_logs}
 
 [4] ZONE ANALYSIS SUMMARY (ALL ZONES)
@@ -250,31 +204,14 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 -------------------------------------------------------
    This analysis is valid ONLY when the following conditions are met:
 
-   1. DESIGN STANDARD:
-      - Calculations based on AS/NZS 1170.2:2021 (Wind Actions).
-      - AS/NZS 1170.0:2002 (General Principles) for probability factors.
-
-   2. ZONES CONSIDERED:
-      - The report explicitly covers Roof Zones: RA1 (General), RA2 (Edges), 
-        RA3 (Corners), and RA4 (Local Pressure). 
-      - Installation must respect the specific 'Max Span' for the zone it is placed in.
-
-   3. ROOF CONFIGURATION:
-      - Valid for Roof Type: {inputs['roof_type']}
-      - Valid for Roof Pitch: {inputs['roof_angle']} degrees (+/- 2 deg tolerance)
-      - Max Building Height: {inputs['b_height']} m
-
-   4. STRUCTURAL CONFIGURATION:
-      - Analysis assumes a Continuous Beam system with {inputs['num_spans']} spans.
-      - Minimum number of rail supports required: {inputs['num_spans'] + 1} supports.
-      - Single span installations are NOT covered by this specific calculation 
-        (unless Num Spans = 1 was selected).
-
-   5. EXCLUSIONS (ACTION REQUIRED):
-      - Fixing/Screw Capacity: The connection between the L-foot/Bracket and the 
-        roof purlin/rafter MUST be verified separately against the 'Max Reaction Force'.
-      - Rail Deflection: Serviceability limit state (L/200 etc.) is not checked.
-      - PV Clamping: Mid/End clamps holding the modules must be rated for the Design Pressure.
+   1. DESIGN STANDARD: AS/NZS 1170.2:2021 (Wind Actions).
+   2. ZONES: Covers RA1 (General), RA2 (Edges), RA3 (Corners), RA4 (Local).
+   3. GEOMETRY: Max Height {inputs['b_height']}m, Roof Angle {inputs['roof_angle']} deg.
+   4. STRUCTURE: Continuous Beam with {inputs['num_spans']} spans (Min {inputs['num_spans']+1} supports).
+   5. EXCLUSIONS: 
+      - Fixing/Screw Pull-out capacity MUST be verified separately.
+      - Roof structure capacity is NOT checked.
+      - Deflection (SLS) is NOT checked.
 
 [7] VISUALIZATION GUIDE
 -----------------------
@@ -283,4 +220,3 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 ================================================================================
 """
     return report_text
-
