@@ -141,21 +141,20 @@ def plot_panel_load(pw, pd, orient, tw):
 
 def plot_fem(res, zone):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
-    # Shear
     ax1.plot(res['x'], res['shear'], 'b-'); ax1.fill_between(res['x'], res['shear'], color='blue', alpha=0.1)
     ax1.set_ylabel("Shear (kN)"); ax1.set_title(f"SFD - {zone}"); ax1.grid(True, ls=':')
     v_max = np.argmax(np.abs(res['shear'])); ax1.plot(res['x'][v_max], res['shear'][v_max], 'ro')
-    ax1.annotate(f"{abs(res['shear'][v_max]):.2f}", xy=(res['x'][v_max], res['shear'][v_max]), xytext=(5,10), textcoords="offset points", color='red', fontweight='bold')
+    ax1.annotate(f"V*={abs(res['shear'][v_max]):.2f}", xy=(res['x'][v_max], res['shear'][v_max]), xytext=(5,10), textcoords="offset points", color='red', fontweight='bold')
     
     ax2.plot(res['x'], res['moment'], 'r-'); ax2.fill_between(res['x'], res['moment'], color='red', alpha=0.1)
     ax2.set_ylabel("Moment (kNm)"); ax2.set_title(f"BMD - {zone}"); ax2.grid(True, ls=':')
     m_max = np.argmax(np.abs(res['moment'])); ax2.plot(res['x'][m_max], res['moment'][m_max], 'bo')
-    ax2.annotate(f"{abs(res['moment'][m_max]):.2f}", xy=(res['x'][m_max], res['moment'][m_max]), xytext=(5,10), textcoords="offset points", color='blue', fontweight='bold')
+    ax2.annotate(f"M*={abs(res['moment'][m_max]):.2f}", xy=(res['x'][m_max], res['moment'][m_max]), xytext=(5,10), textcoords="offset points", color='blue', fontweight='bold')
     plt.tight_layout()
     return fig
 
 # ==========================================
-# MAIN LOGIC
+# MAIN LOGIC (WITH SESSION STATE)
 # ==========================================
 if st.button("🚀 Run Analysis"):
     Mn = structural.calculate_Mn(breaking_load, test_span, safety_factor)
@@ -179,10 +178,7 @@ if st.button("🚀 Run Analysis"):
     for z in zones:
         p_z = wind_load.calculate_wind_pressure(v_des, base_cpe, ka, kc, z['kl'])
         w_z = p_z * trib_width
-        
-        # Unpack 3 values (span, fem_res, history)
         span, fem, history = structural.optimize_span(Mn, w_z, num_spans, max_span=4.0)
-        
         rxn, mom, shr = np.max(np.abs(fem['reactions'])), fem['max_moment'], np.max(np.abs(fem['shear']))
         
         results.append({
@@ -196,7 +192,6 @@ if st.button("🚀 Run Analysis"):
             worst_res = {'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
                          'load': w_z, 'moment': mom, 'shear_max': shr, 'reaction': rxn}
 
-    # Save to session state
     st.session_state['results'] = results
     st.session_state['worst_res'] = worst_res
     st.session_state['wind_data'] = {'res0': res0, 'r0': r0, 'res90': res90, 'r90': r90, 'gov_case': gov_case, 'note': note, 'base_cpe': base_cpe, 'trib_width': trib_width}
@@ -224,15 +219,17 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     with c1: st.write(f"**Wind 0°:** {w_dat['res0']['cpe']:.2f}"); st.write(f"**Wind 90°:** {w_dat['res90']['cpe']:.2f}"); st.info(f"**Governing:** {w_dat['gov_case']}")
     with c2: st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
-    # 3. Table (Fixed Styling Error)
-    st.divider(); st.subheader("3. Zone Analysis")
+    # 3. Table (FIXED: Drop history before displaying)
+    st.divider(); st.subheader("3. Zone Analysis Summary (RA1-RA4)")
     df_res = pd.DataFrame(res_list)
+    # Drop history column for display
+    df_display = df_res.drop(columns=['history'], errors='ignore')
+    
     st.dataframe(
-        df_res.style
+        df_display.style
         .format("{:.3f}", subset=["Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "Reaction (kN)", "M* (kNm)"])
         .format("{:.1f}", subset=["Kl"])
-        .highlight_max(subset=["Pressure (kPa)", "Reaction (kN)", "M* (kNm)"], color='#ffcccc')
-        .highlight_min(subset=["Max Span (m)"], color='#ffcccc'),
+        .highlight_max(subset=["Pressure (kPa)"], color='#ffcccc'),
         use_container_width=True
     )
 
