@@ -1,17 +1,17 @@
 import pandas as pd
 import numpy as np
 import datetime
-from fpdf import FPDF  # ต้องติดตั้ง library: pip install fpdf2
+from fpdf import FPDF
 
 # ==========================================
 # ASCII ART ASSETS
 # ==========================================
 def get_report_logo():
     """
-    Returns the custom ASCII Art Logo from ascii-art.txt
+    Returns the custom ASCII Art Logo from provided file
     """
     return r"""
-         3555555555537      14444445537            5957            7325464523   541      7352     735666451  12237      
+3555555555537      14444445537            5957            7325464523   541      7352     735666451  12237      
          266666666666657    309222225905          30002          3908652225693  983     1985    76865333342 733371   
          266643333466664    3047     7605        1901981       79041            903    4067     891         723321      
          266657    466663   3047      209         502 389      1803              903  3881      1091                     
@@ -97,16 +97,14 @@ def format_iteration_table(history, zone_name):
     
     rows = []
     for step in steps:
-        sp = step.get('span', 0.0)
-        ms = step.get('m_star', 0.0)
-        ut = step.get('util', 0.0)
-        st = step.get('status', '-')
+        sp = step.get('span', 0.0); ms = step.get('m_star', 0.0)
+        ut = step.get('util', 0.0); st = step.get('status', '-')
         rows.append(f"   |   {sp:.3f}    |   {ms:.3f}    |   {ut:.1f}   |   {st}   |")
         
     return f"{header}\n{table_header}\n{divider}\n" + "\n".join(rows) + "\n"
 
 # ==========================================
-# MAIN REPORT GENERATOR (TEXT)
+# MAIN REPORT GENERATOR
 # ==========================================
 def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_res):
     """
@@ -128,21 +126,17 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
         float_format=lambda x: "{:.3f}".format(x) if isinstance(x, (float, np.floating)) else str(x)
     )
     
-    # 2. Generate Iteration Logs (Detailed 10 steps)
+    # 2. Generate Iteration Logs
     iteration_logs = ""
     for z in zone_results:
-        # Check if history exists
         hist = z.get('history', [])
-        iteration_logs += format_iteration_table(hist, z.get('Zone', 'Unknown'))
-        iteration_logs += "\n"
+        iteration_logs += format_iteration_table(hist, z.get('Zone', 'Unknown')) + "\n"
 
-    # 3. Generate Visuals (ASCII Art Restored)
+    # 3. Generate Visuals
     ridge_art = get_ascii_ridge_diagram(inputs['b_width'], inputs['b_depth'], inputs['roof_type'])
-    
     zone_art = ""
     for z in zone_results:
-        zone_art += f"\n   ZONE {z.get('Zone')} ({z.get('Description')}):\n"
-        zone_art += get_ascii_art(z.get('Zone'))
+        zone_art += f"\n   ZONE {z.get('Zone')} ({z.get('Description')}):\n" + get_ascii_art(z.get('Zone'))
 
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logo = get_report_logo()
@@ -229,8 +223,8 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 {step_load}
 {step_optimization}
 
-[3] SPAN OPTIMIZATION LOGS (LAST 10 STEPS PER ZONE)
----------------------------------------------------
+[3] SPAN OPTIMIZATION LOGS (LAST 10 STEPS)
+------------------------------------------
 {iteration_logs}
 
 [4] ZONE ANALYSIS SUMMARY (ALL ZONES)
@@ -281,10 +275,7 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 
 [7] VISUALIZATION GUIDE
 -----------------------
-   [7.1] Building Orientation & Ridge Line
 {ridge_art}
-
-   [7.2] Roof Zone Reference (ASCII Art)
 {zone_art}
 ================================================================================
 """
@@ -296,13 +287,12 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 def create_pdf_report(report_string):
     """
     Converts the text report into a PDF file (A4, No Scale).
-    Requires fpdf2 library.
     """
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     
     # Use Courier font (Monospaced) to preserve ASCII art alignment
-    # Size 9 fits A4 well for typical terminal output width
+    # Size 8-9 fits A4 well for typical terminal output width
     pdf.set_font("Courier", size=8)
     
     # Clean text to ensure compatibility (Latin-1 is standard for FPDF)
