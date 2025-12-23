@@ -1,7 +1,7 @@
 import streamlit as st
 import structural
 import wind_load
-import report
+import report  # Import module report ที่สร้างใหม่
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
@@ -26,14 +26,11 @@ st.markdown("**Structural Engineer & Software Developer:** Aluminum Rail Analysi
 # ==========================================
 @st.cache_data
 def load_rail_data():
-    """Load rail database from GitHub"""
     try:
-        # Using the RAW URL for the user's file
         url = "https://raw.githubusercontent.com/konohatrong/rrack_rail_spacing_table/main/rail_data.csv"
         df = pd.read_csv(url)
         return df
     except Exception as e:
-        st.warning(f"Could not load data from GitHub. Using dummy data. Error: {e}")
         # Fallback Mockup Data
         data = {
             'Brand': ['Generic', 'SolarRail-X', 'Alu-Pro'],
@@ -44,7 +41,6 @@ def load_rail_data():
         return pd.DataFrame(data)
 
 def get_csv_template():
-    """Generate CSV template string"""
     df_template = pd.DataFrame(columns=['Brand', 'Model', 'Breaking Load (kN)', 'Test Span (m)'])
     return df_template.to_csv(index=False)
 
@@ -56,20 +52,19 @@ df_rails = load_rail_data()
 
 st.sidebar.header("1. Wind Parameters (AS/NZS 1170.0/1170.2)")
 
-# --- PROBABILITY & REGION ---
+# Step A: Importance & Probability
 st.sidebar.markdown("**Step A: Importance & Probability**")
 region_list = ["A0", "A1", "A2", "A3", "A4", "A5", "B1", "B2", "C", "D"]
 region = st.sidebar.selectbox("Wind Region", region_list, index=1)
-imp_level = st.sidebar.selectbox("Importance Level (IL)", [1, 2, 3, 4], index=1, help="AS/NZS 1170.0 Table 3.3")
+imp_level = st.sidebar.selectbox("Importance Level (IL)", [1, 2, 3, 4], index=1)
 design_life = st.sidebar.selectbox("Design Working Life (Years)", [5, 25, 50, 100], index=2)
 
-# Calculate Vr based on IL and Life
 ret_period = wind_load.get_return_period(imp_level, design_life)
 vr = wind_load.get_vr_from_ari(region, ret_period)
 
 st.sidebar.info(f"**Calculated Values:**\n- Return Period (R): 1/{ret_period}\n- Regional Speed ($V_R$): {vr} m/s")
 
-# --- MULTIPLIERS ---
+# Step B: Multipliers
 st.sidebar.markdown("**Step B: Site Multipliers**")
 md = st.sidebar.number_input("Direction Multiplier, Md", value=1.0, min_value=0.8, max_value=1.0)
 tc = st.sidebar.selectbox("Terrain Category (TC)", [1, 2, 2.5, 3, 4], index=3)
@@ -81,14 +76,14 @@ mz_cat = wind_load.get_mz_cat(b_height, tc)
 v_des = wind_load.calculate_v_des_detailed(vr, md, mz_cat, ms, mt)
 st.sidebar.success(f"**Design Wind Speed ($V_{{des}}$) = {v_des:.2f} m/s**")
 
-# --- GEOMETRY ---
+# Geometry
 st.sidebar.header("2. Building Geometry")
 b_width = st.sidebar.number_input("Building Width, b (m)", value=20.0)
 b_depth = st.sidebar.number_input("Building Depth, d (m)", value=15.0)
 roof_type = st.sidebar.radio("Roof Shape", ["Monoslope", "Gable Roof"])
 roof_angle = st.sidebar.number_input("Roof Angle (Degrees)", min_value=0.0, max_value=60.0, value=10.0, step=0.5)
 
-# --- PANEL & RAIL ---
+# Panel & Rail
 st.sidebar.header("3. Panel & Rail")
 panel_w = st.sidebar.number_input("Panel Width (m)", value=1.134)
 panel_d = st.sidebar.number_input("Panel Depth (m)", value=2.279)
@@ -99,33 +94,21 @@ st.sidebar.subheader("Coefficients")
 ka = st.sidebar.number_input("Area Reduction Factor (Ka)", value=1.0)
 kc = st.sidebar.number_input("Comb. Factor (Kc)", value=1.0)
 
-# --- STRUCTURAL ---
+# Structural
 st.sidebar.header("4. Structural Test Data")
+st.sidebar.download_button(label="📥 Download Template", data=get_csv_template(), file_name="rail_data_template.csv", mime="text/csv")
 
-st.sidebar.download_button(
-    label="📥 Download Template",
-    data=get_csv_template(),
-    file_name="rail_data_template.csv",
-    mime="text/csv"
-)
-
-# Rail Selection
 rail_options = ["Custom Input"] + [f"{row['Brand']} - {row['Model']}" for i, row in df_rails.iterrows()]
 selected_rail_str = st.sidebar.selectbox("Select Rail from Database:", rail_options)
 
 if selected_rail_str != "Custom Input":
     sel_brand, sel_model = selected_rail_str.split(" - ")
     rail_data = df_rails[(df_rails['Brand'] == sel_brand) & (df_rails['Model'] == sel_model)].iloc[0]
-    def_brand = rail_data['Brand']
-    def_model = rail_data['Model']
-    def_bk_load = float(rail_data['Breaking Load (kN)'])
-    def_span = float(rail_data['Test Span (m)'])
+    def_brand, def_model = rail_data['Brand'], rail_data['Model']
+    def_bk_load, def_span = float(rail_data['Breaking Load (kN)']), float(rail_data['Test Span (m)'])
     input_disabled = True
 else:
-    def_brand = "Custom"
-    def_model = "-"
-    def_bk_load = 5.0
-    def_span = 1.0
+    def_brand, def_model, def_bk_load, def_span = "Custom", "-", 5.0, 1.0
     input_disabled = False
 
 rail_brand = st.sidebar.text_input("Brand", value=def_brand, disabled=input_disabled)
@@ -136,7 +119,7 @@ safety_factor = st.sidebar.number_input("Safety Factor (Mn)", value=1.1)
 num_spans = st.sidebar.slider("Number of Continuous Spans", 1, 5, 2)
 
 # ==========================================
-# VISUALIZATION FUNCTIONS
+# VISUALIZATION FUNCTIONS (Keep in app.py for UI)
 # ==========================================
 def plot_building_diagram(b, d, r_type):
     fig, ax = plt.subplots(figsize=(5, 3))
@@ -179,7 +162,6 @@ def plot_panel_load_diagram(pw, pd, orient, trib_w):
         dim_y = pd + 0.15
         ax.annotate('', xy=(0, dim_y), xytext=(pw/2, dim_y), arrowprops=dict(arrowstyle='<->', color='red', lw=1.5))
         ax.text(pw/4, dim_y + 0.05, f"Trib = {trib_w:.3f} m", color='red', ha='center')
-
     ax.text(pw/2, -0.1, f"Width = {pw}m", ha='center')
     ax.text(-0.1, pd/2, f"Depth = {pd}m", va='center', rotation=90)
     ax.set_xlim(-0.3, pw + 0.5)
@@ -192,7 +174,6 @@ def plot_panel_load_diagram(pw, pd, orient, trib_w):
 
 def plot_fem_diagrams_annotated(analysis_res, zone_name):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
-    # SFD
     x = analysis_res['x']
     shear = analysis_res['shear']
     ax1.plot(x, shear, 'b-')
@@ -204,10 +185,8 @@ def plot_fem_diagrams_annotated(analysis_res, zone_name):
     v_max_idx = np.argmax(np.abs(shear))
     v_val = shear[v_max_idx]
     ax1.plot(x[v_max_idx], v_val, 'ro')
-    # Annotation
     ax1.annotate(f"V*={abs(v_val):.2f} kN", xy=(x[v_max_idx], v_val), xytext=(10, 10 if v_val>0 else -15), textcoords="offset points", color='red', fontweight='bold')
     
-    # BMD
     moment = analysis_res['moment']
     ax2.plot(x, moment, 'r-')
     ax2.fill_between(x, moment, color='red', alpha=0.1)
@@ -218,44 +197,9 @@ def plot_fem_diagrams_annotated(analysis_res, zone_name):
     m_max_idx = np.argmax(np.abs(moment))
     m_val = moment[m_max_idx]
     ax2.plot(x[m_max_idx], m_val, 'bo')
-    # Annotation
     ax2.annotate(f"M*={abs(m_val):.2f} kNm", xy=(x[m_max_idx], m_val), xytext=(10, 10 if m_val>0 else -15), textcoords="offset points", color='blue', fontweight='bold')
-    
     plt.tight_layout()
     return fig
-
-# ==========================================
-# ASCII ART
-# ==========================================
-def get_ascii_ridge_diagram(b, d, r_type):
-    if "Gable" in r_type:
-        return f"""
-       Wind 0 deg (Normal)
-             |
-             v
-      +---------------------+
-      |      ROOF A         |
-      | - - RIDGE LINE - - -| ---> Wind 90 deg
-      |      ROOF B         |
-      +---------------------+
-        """
-    else: 
-        return f"""
-       Wind 0 deg
-             |
-             v
-      +---------------------+
-      |    MONOSLOPE        |
-      |                     |
-      +---------------------+ ---> Wind 90 deg
-        """
-
-def get_ascii_art(zone_code):
-    if zone_code == "RA1": return "[ RA 1: GENERAL AREA ]"
-    elif zone_code == "RA2": return "[ RA 2: EDGES / RIDGE ]"
-    elif zone_code == "RA3": return "[ RA 3: CORNERS ]"
-    elif zone_code == "RA4": return "[ RA 4: HIGH SUCTION ]"
-    return ""
 
 # ==========================================
 # MAIN LOGIC
@@ -272,8 +216,10 @@ if st.button("🚀 Run Analysis for All Zones"):
     
     if res_0['cpe'] < res_90['cpe']:
         base_cpe, governing_case = res_0['cpe'], f"Wind 0° (Normal) | h/d={ratio_0:.2f}"
+        direction_note = "Using Cpe from Wind 0° as it is more negative."
     else:
         base_cpe, governing_case = res_90['cpe'], f"Wind 90° (Side) | h/b={ratio_90:.2f}"
+        direction_note = "Using Cpe from Wind 90° as it is more negative."
 
     # 2. Iterate Zones
     zones = [
@@ -314,6 +260,7 @@ if st.button("🚀 Run Analysis for All Zones"):
                 'fem': fem_res_z,
                 'load': w_z,
                 'moment': max_moment_z,
+                'shear_max': np.max(np.abs(fem_res_z['shear'])),
                 'reaction': max_reaction_z
             }
 
@@ -323,7 +270,7 @@ if st.button("🚀 Run Analysis for All Zones"):
     st.divider()
     st.header("📊 Analysis Report Summary")
     
-    # 1. INPUT & GEOMETRY (Ordered First)
+    # 1. INPUT & GEOMETRY
     st.subheader("1. Input Summary & Geometry")
     col_in1, col_in2 = st.columns([1, 1])
     with col_in1:
@@ -365,91 +312,45 @@ if st.button("🚀 Run Analysis for All Zones"):
 
     st.divider()
 
-    # 4. CRITICAL CASE DETAILS (Ordered Last)
+    # 4. CRITICAL CASE
     st.subheader(f"4. Critical Case Analysis ({worst_case_res['zone']})")
     col_crit1, col_crit2 = st.columns([1, 2])
     with col_crit1:
         st.markdown("### Design Actions")
         st.metric("M* (Design Moment)", f"{worst_case_res['moment']:.3f} kNm")
-        st.metric("V* (Max Shear)", f"{np.max(np.abs(worst_case_res['fem']['shear'])):.2f} kN")
+        st.metric("V* (Max Shear)", f"{worst_case_res['shear_max']:.2f} kN")
         st.metric("Max Reaction", f"{worst_case_res['reaction']:.2f} kN")
         st.caption(f"Occurs in **{worst_case_res['zone']}** at Max Span **{worst_case_res['span']:.2f} m**")
-    
     with col_crit2:
         st.pyplot(plot_fem_diagrams_annotated(worst_case_res['fem'], worst_case_res['zone']))
 
     # ==========================================
-    # REPORT GENERATION
+    # REPORT GENERATION (Via report.py)
     # ==========================================
     st.divider()
     st.header("📄 Plain Text Report")
     
-    table_str = df_res.to_string(index=False, justify="right", float_format=lambda x: "{:.3f}".format(x))
-    ridge_art = get_ascii_ridge_diagram(b_width, b_depth, roof_type)
+    # Prepare Data dictionaries for report function
+    input_data = {
+        'rail_brand': rail_brand, 'rail_model': rail_model,
+        'region': region, 'imp_level': imp_level, 'design_life': design_life,
+        'ret_period': ret_period, 'vr': vr, 'v_des': v_des,
+        'md': md, 'ms': ms, 'mt': mt, 'mz_cat': mz_cat,
+        'b_width': b_width, 'b_depth': b_depth, 'b_height': b_height,
+        'roof_type': roof_type, 'roof_angle': roof_angle
+    }
+    wind_res = {
+        'cpe_0': res_0['cpe'], 'ratio_0': ratio_0,
+        'cpe_90': res_90['cpe'], 'ratio_90': ratio_90,
+        'governing_case': governing_case, 'note': direction_note,
+        'trib_width': trib_width, 'ka': ka, 'kc': kc
+    }
+    struct_res = {
+        'Mn': Mn, 'break_load': breaking_load, 'test_span': test_span, 'sf': safety_factor
+    }
     
-    zone_art = ""
-    for z in zones:
-        zone_art += f"\n--- ZONE {z['code']} ({z['desc']}) ---"
-        zone_art += get_ascii_art(z['code'])
-        zone_art += "\n"
-
-    report_text = f"""
-================================================================================
-                    SOLAR RAIL STRUCTURAL CALCULATION REPORT
-                          Standard: AS/NZS 1170.2:2021
-================================================================================
-
-[1] PROJECT INPUTS
-------------------
-   - Rail Model:                 {rail_brand} - {rail_model}
-   - Region:                     {region}
-   - Importance Level:           {imp_level} (Design Life: {design_life} years)
-   - Annual Prob. Exceedance:    1/{ret_period}
-   - Regional Wind Speed (Vr):   {vr} m/s
-   - Design Wind Speed (Vdes):   {v_des:.2f} m/s (Md={md}, Ms={ms}, Mt={mt})
-   
-   - Building Dimensions:        {b_width}m (W) x {b_depth}m (D) x {b_height}m (H)
-   - Roof Configuration:         {roof_type}, Angle {roof_angle} deg
-   
-   - Rail Capacity (Mn):         {Mn:.3f} kNm
-     (Break Load: {breaking_load} kN, Test Span: {test_span} m, SF: {safety_factor})
-
-[2] WIND ANALYSIS DETAILS
--------------------------
-   A. Direction Check
-      - Wind 0 deg (Normal):     Cpe = {res_0['cpe']:.2f} (h/d={ratio_0:.2f})
-      - Wind 90 deg (Parallel):  Cpe = {res_90['cpe']:.2f} (h/b={ratio_90:.2f})
-      >> GOVERNING CASE:         {governing_case}
-
-   B. Load Parameters
-      - Tributary Width:         {trib_width:.3f} m
-      - Area Reduction (Ka):     {ka}
-      - Combination Factor (Kc): {kc}
-
-[3] ZONE ANALYSIS SUMMARY (RA1-RA4)
------------------------------------
-{table_str}
-
-[4] CRITICAL CASE RESULTS ({worst_case_res['zone']})
-----------------------------------------------------
-   The most critical condition occurs in Zone: {worst_case_res['zone']}
-   
-   >> Max Design Moment (M*):    {worst_case_res['moment']:.3f} kNm
-   >> Max Design Shear (V*):     {np.max(np.abs(worst_case_res['fem']['shear'])):.3f} kN
-   >> Max Reaction Force:        {worst_case_res['reaction']:.3f} kN
-   >> Max Allowable Span:        {worst_case_res['span']:.2f} m
-
-   [Design Check]
-   M* ({worst_case_res['moment']:.3f}) < Mn ({Mn:.3f}) --> OK
-
-[5] VISUALIZATION GUIDE
------------------------
-{ridge_art}
-
-{zone_art}
-================================================================================
-Generated by Solar Rail App | Date: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
-================================================================================
-"""
+    # Call report generation
+    report_text = report.generate_full_report(input_data, wind_res, struct_res, results_list, worst_case_res)
+    
     st.code(report_text, language='text')
     st.download_button("💾 Download Report", report_text, "Solar_Rail_Report.txt")
