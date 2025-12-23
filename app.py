@@ -174,7 +174,9 @@ if st.button("🚀 Run Analysis"):
     zones = [{"code": "RA1", "desc": "General", "kl": 1.0}, {"code": "RA2", "desc": "Edges", "kl": 1.5}, 
              {"code": "RA3", "desc": "Corners", "kl": 2.0}, {"code": "RA4", "desc": "High Suction", "kl": 3.0}]
     
-    results, worst_res, max_p = [], None, -1.0
+    results = []
+    worst_res = None
+    max_p = -1.0
     
     for z in zones:
         p_z = wind_load.calculate_wind_pressure(v_des, base_cpe, ka, kc, z['kl'])
@@ -191,11 +193,12 @@ if st.button("🚀 Run Analysis"):
             "Pressure (kPa)": p_z, "Line Load (kN/m)": w_z, "Max Span (m)": span,
             "Reaction (kN)": np.max(rxn), "M* (kNm)": mom, "history": history
         })
+        
         if p_z > max_p:
             max_p = p_z
             worst_res = {'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
                          'load': w_z, 'moment': mom, 'shear_max': shr, 
-                         'rxn_edge': rxn_edge, 'rxn_int': rxn_int}
+                         'reaction': np.max(rxn), 'rxn_edge': rxn_edge, 'rxn_int': rxn_int}
 
     st.session_state['results'] = results
     st.session_state['worst_res'] = worst_res
@@ -221,29 +224,55 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     st.markdown(f"- Formula: $V_R \cdot M_d \cdot (M_{{z,cat}} \cdot M_s \cdot M_t)$")
     st.markdown(f"- Subst: {vr} * {md} * ({mz_cat:.2f} * {ms} * {mt})")
     st.markdown('</div>', unsafe_allow_html=True)
-    c1, c2 = st.columns([1, 1])
-    with c1: st.write(f"**Rail:** {rail_brand}"); st.write(f"**Mn:** {s_dat['Mn']:.3f} kNm")
-    with c2: st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
+    
+    c_geo1, c_geo2 = st.columns([1, 1])
+    with c_geo1:
+        st.markdown("#### Geometry & Capacity")
+        st.write(f"- **Rail Model:** {rail_brand} ({rail_model})")
+        st.write(f"- **Capacity (Mn):** {s_dat['Mn']:.3f} kNm")
+        st.write(f"- **Building:** {b_width}x{b_depth}x{b_height}m")
+        st.write(f"- **Roof:** {roof_type} @ {roof_angle}°")
+    with c_geo2:
+        st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
+
+    st.divider()
 
     # 2. Wind
-    st.divider(); st.subheader("2. Wind Analysis ($C_{p,e}$)")
+    st.subheader("2. Wind Analysis ($C_{p,e}$ Selection)")
     st.markdown('<div class="info-box">', unsafe_allow_html=True)
-    st.write(f"**Roof:** {roof_type} @ {roof_angle}°")
-    st.write(f"- Wind 0° (Normal): h/d={w_dat['r0']:.2f} -> Cpe={w_dat['res0']['cpe']:.2f}")
-    st.write(f"- Wind 90° (Parallel): h/b={w_dat['r90']:.2f} -> Cpe={w_dat['res90']['cpe']:.2f}")
-    st.warning(f"**Governing:** {w_dat['gov_case']}")
+    st.markdown("#### External Pressure Coefficient ($C_{p,e}$)")
+    w1, w2 = st.columns(2)
+    with w1:
+        st.write("**Case 1: Wind 0° (Normal)**")
+        st.write(f"- h/d Ratio: {b_height}/{b_depth} = **{w_dat['r0']:.2f}**")
+        st.write(f"- Cpe: **{w_dat['res0']['cpe']:.2f}**")
+    with w2:
+        st.write("**Case 2: Wind 90° (Parallel)**")
+        st.write(f"- h/b Ratio: {b_height}/{b_width} = **{w_dat['r90']:.2f}**")
+        st.write(f"- Cpe: **{w_dat['res90']['cpe']:.2f}**")
+        
+    st.warning(f"**Selected Governing Case:** {w_dat['gov_case']} (Most critical suction)")
     st.markdown('</div>', unsafe_allow_html=True)
-    st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
+    
+    c_trib1, c_trib2 = st.columns([1, 1])
+    with c_trib1:
+        st.markdown("#### Load Parameters")
+        st.write(f"- **Tributary Width:** {w_dat['trib_width']:.3f} m")
+        st.write(f"- **Ka (Area Red.):** {ka}")
+        st.write(f"- **Kc (Comb.):** {kc}")
+    with c_trib2:
+        st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
     # 3. Table (FIXED)
     st.divider(); st.subheader("3. Zone Analysis Summary")
     df_res = pd.DataFrame(res_list)
-    df_disp = df_res.drop(columns=['history'], errors='ignore')
     
-    # FIX: Use dictionary for formatting to allow non-numeric columns
+    # Remove 'history' column for clean display
+    df_display = df_res.drop(columns=['history'], errors='ignore')
+    
+    # Format specific numeric columns (Excluding 'Zone' which is string)
     st.dataframe(
-        df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]]
-        .style.format({
+        df_display.style.format({
             "Pressure (kPa)": "{:.3f}",
             "Line Load (kN/m)": "{:.3f}",
             "Max Span (m)": "{:.2f}",
@@ -256,12 +285,20 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
 
     # 4. Critical
     st.divider(); st.subheader(f"4. Critical Case Analysis ({w_res['zone']})")
-    c1, c2 = st.columns([1, 2])
-    with c1: 
+    
+    col_crit1, col_crit2 = st.columns([1, 2])
+    with col_crit1:
+        st.markdown("### Design Values")
         st.metric("Max Span", f"{w_res['span']:.2f} m")
-        st.metric("M*", f"{w_res['moment']:.3f} kNm")
-        st.write(f"**Reactions:** Edge={w_res['rxn_edge']:.2f}, Mid={w_res['rxn_int']:.2f} kN")
-    with c2: st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
+        st.metric("Design Moment (M*)", f"{w_res['moment']:.3f} kNm")
+        
+        st.markdown("---")
+        st.markdown("### Reaction Forces")
+        st.metric("Max End Reaction (Edge)", f"{w_res['rxn_edge']:.3f} kN")
+        st.metric("Max Int. Reaction (Mid)", f"{w_res['rxn_int']:.3f} kN")
+        
+    with col_crit2:
+        st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
 
     # Report
     st.divider(); st.header("📄 Plain Text Report")
