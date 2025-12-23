@@ -8,7 +8,7 @@ from fpdf import FPDF
 # ==========================================
 def get_report_logo():
     """
-    Returns the custom ASCII Art Logo from provided file
+    Returns the custom ASCII Art Logo
     """
     return r"""
 3555555555537      14444445537            5957            7325464523   541      7352     735666451  12237      
@@ -26,7 +26,6 @@ def get_report_logo():
     """
 
 def get_ascii_ridge_diagram(b, d, r_type):
-    """Generates ASCII diagram for Building Orientation & Ridge Line"""
     if "Gable" in r_type:
         return f"""
        Wind 0 deg (Normal/Transverse)
@@ -52,7 +51,6 @@ def get_ascii_ridge_diagram(b, d, r_type):
         """
 
 def get_ascii_art(zone_code):
-    """Returns ASCII art for specific roof zones"""
     if zone_code == "RA1": 
         return """
       +-----------------------------+
@@ -84,55 +82,39 @@ def get_ascii_art(zone_code):
     return ""
 
 def format_iteration_table(history, zone_name):
-    """Formats the last 10 steps of the iteration history."""
     if not history or len(history) == 0: 
         return f"   [No iteration history recorded for {zone_name}]"
-    
-    # Get last 10 steps
     steps = history[-10:]
-    
     header = f"   >> Iteration Log for {zone_name} (Last {len(steps)} Steps):"
     table_header =  "   |  Span (m)  |  M* (kNm)  | Util (%) | Status |"
     divider =       "   |------------|------------|----------|--------|"
-    
     rows = []
     for step in steps:
         sp = step.get('span', 0.0); ms = step.get('m_star', 0.0)
         ut = step.get('util', 0.0); st = step.get('status', '-')
         rows.append(f"   |   {sp:.3f}    |   {ms:.3f}    |   {ut:.1f}   |   {st}   |")
-        
     return f"{header}\n{table_header}\n{divider}\n" + "\n".join(rows) + "\n"
 
 # ==========================================
 # MAIN REPORT GENERATOR
 # ==========================================
 def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_res):
-    """
-    Main function to generate the detailed plain text report.
-    """
     
-    # 1. Format Summary Table (Clean Data)
+    # 1. Format Tables
     df_res = pd.DataFrame(zone_results)
-    
-    # Drop history column if exists (to keep the summary table clean)
     df_clean = df_res.drop(columns=['history'], errors='ignore')
-    
     if 'Utilization' not in df_clean.columns:
          df_clean['Utilization'] = (df_clean['M* (kNm)'] / struct_res['Mn']) * 100
 
-    table_str = df_clean.to_string(
-        index=False, 
-        justify="right", 
-        float_format=lambda x: "{:.3f}".format(x) if isinstance(x, (float, np.floating)) else str(x)
-    )
+    table_str = df_clean.to_string(index=False, justify="right", float_format=lambda x: "{:.3f}".format(x) if isinstance(x, (float, np.floating)) else str(x))
     
-    # 2. Generate Iteration Logs
+    # 2. Iteration Logs
     iteration_logs = ""
     for z in zone_results:
         hist = z.get('history', [])
         iteration_logs += format_iteration_table(hist, z.get('Zone', 'Unknown')) + "\n"
 
-    # 3. Generate Visuals
+    # 3. Visuals
     ridge_art = get_ascii_ridge_diagram(inputs['b_width'], inputs['b_depth'], inputs['roof_type'])
     zone_art = ""
     for z in zone_results:
@@ -141,7 +123,7 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logo = get_report_logo()
 
-    # --- Detailed Calculation breakdown ---
+    # --- Calculation Blocks ---
     step_vdes = f"""
     1. Design Wind Speed (Vdes) Calculation:
        Ref: AS/NZS 1170.2 Eq. 2.2
@@ -223,8 +205,8 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 {step_load}
 {step_optimization}
 
-[3] SPAN OPTIMIZATION LOGS (LAST 10 STEPS)
-------------------------------------------
+[3] SPAN OPTIMIZATION LOGS (LAST 10 STEPS PER ZONE)
+---------------------------------------------------
 {iteration_logs}
 
 [4] ZONE ANALYSIS SUMMARY (ALL ZONES)
@@ -245,33 +227,11 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 
 [6] LIMITATIONS & CONDITIONS OF USE (STRICT COMPLIANCE)
 -------------------------------------------------------
-   This analysis is valid ONLY when the following conditions are met:
-
-   1. DESIGN STANDARD:
-      - Calculations based on AS/NZS 1170.2:2021 (Wind Actions).
-      - AS/NZS 1170.0:2002 (General Principles) for probability factors.
-
-   2. ZONES CONSIDERED:
-      - The report explicitly covers Roof Zones: RA1 (General), RA2 (Edges), 
-        RA3 (Corners), and RA4 (Local Pressure). 
-      - Installation must respect the specific 'Max Span' for the zone it is placed in.
-
-   3. ROOF CONFIGURATION:
-      - Valid for Roof Type: {inputs['roof_type']}
-      - Valid for Roof Pitch: {inputs['roof_angle']} degrees (+/- 2 deg tolerance)
-      - Max Building Height: {inputs['b_height']} m
-
-   4. STRUCTURAL CONFIGURATION:
-      - Analysis assumes a Continuous Beam system with {inputs['num_spans']} spans.
-      - Minimum number of rail supports required: {inputs['num_spans'] + 1} supports.
-      - Single span installations are NOT covered by this specific calculation 
-        (unless Num Spans = 1 was selected).
-
-   5. EXCLUSIONS (ACTION REQUIRED):
-      - Fixing/Screw Capacity: The connection between the L-foot/Bracket and the 
-        roof purlin/rafter MUST be verified separately against the 'Max Reaction Force'.
-      - Rail Deflection: Serviceability limit state (L/200 etc.) is not checked.
-      - PV Clamping: Mid/End clamps holding the modules must be rated for the Design Pressure.
+   1. DESIGN STANDARD: AS/NZS 1170.2:2021 (Wind Actions).
+   2. ZONES: Covers RA1 (General), RA2 (Edges), RA3 (Corners), RA4 (Local).
+   3. GEOMETRY: Max Height {inputs['b_height']}m, Roof Angle {inputs['roof_angle']} deg.
+   4. STRUCTURE: Continuous Beam with {inputs['num_spans']} spans.
+   5. EXCLUSIONS: Fixing capacity, Roof structure, Deflection (SLS).
 
 [7] VISUALIZATION GUIDE
 -----------------------
@@ -281,9 +241,6 @@ def generate_full_report(inputs, wind_res, struct_res, zone_results, critical_re
 """
     return report_text
 
-# ==========================================
-# PDF GENERATOR (A4 No Scale)
-# ==========================================
 def create_pdf_report(report_string):
     """
     Converts the text report into a PDF file (A4, No Scale).
@@ -291,15 +248,14 @@ def create_pdf_report(report_string):
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     
-    # Use Courier font (Monospaced) to preserve ASCII art alignment
-    # Size 8-9 fits A4 well for typical terminal output width
+    # Use Courier font (Monospaced)
     pdf.set_font("Courier", size=8)
     
-    # Clean text to ensure compatibility (Latin-1 is standard for FPDF)
+    # Clean text to ensure compatibility
     safe_text = report_string.encode('latin-1', 'replace').decode('latin-1')
     
     # Write text
     pdf.multi_cell(0, 4, safe_text)
     
-    # Return binary
-    return pdf.output(dest='S').encode('latin-1')
+    # Return binary bytes
+    return bytes(pdf.output())
