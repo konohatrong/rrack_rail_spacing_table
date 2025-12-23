@@ -10,15 +10,11 @@ import pandas as pd
 # Set page configuration
 st.set_page_config(page_title="Solar Rail Design (AS/NZS 1170.2)", layout="wide")
 
-# Custom CSS to try and make the UI look cleaner (Tahoma-ish for UI elements)
+# Custom CSS
 st.markdown("""
 <style>
-    .reportview-container .main .block-container{
-        font-family: 'Tahoma', sans-serif;
-    }
-    h1, h2, h3 {
-        font-family: 'Tahoma', sans-serif;
-    }
+    .reportview-container .main .block-container{ font-family: 'Tahoma', sans-serif; }
+    h1, h2, h3 { font-family: 'Tahoma', sans-serif; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -33,7 +29,7 @@ st.markdown("**Structural Engineer & Software Developer:** Aluminum Rail Analysi
 st.sidebar.header("1. Wind Speed Parameters")
 st.sidebar.markdown("Calculation of $V_{des} = V_R \cdot M_d (M_{z,cat} \cdot M_s \cdot M_t)$")
 
-vr = st.sidebar.number_input("Regional Wind Speed, Vr (m/s)", value=45.0, help="Region A=41-45, B=57, C=66, D=80")
+vr = st.sidebar.number_input("Regional Wind Speed, Vr (m/s)", value=45.0)
 md = st.sidebar.number_input("Direction Multiplier, Md", value=1.0, min_value=0.8, max_value=1.0)
 
 st.sidebar.subheader("Terrain & Height")
@@ -42,7 +38,6 @@ b_height = st.sidebar.number_input("Building/Roof Height, z (m)", value=6.0, min
 ms = st.sidebar.number_input("Shielding Multiplier, Ms", value=1.0)
 mt = st.sidebar.number_input("Topographic Multiplier, Mt", value=1.0)
 
-# Calculate Vdes
 mz_cat = wind_load.get_mz_cat(b_height, tc)
 v_des = wind_load.calculate_v_des_detailed(vr, md, mz_cat, ms, mt)
 st.sidebar.success(f"**Design Wind Speed ($V_{{des}}$) = {v_des:.2f} m/s**")
@@ -74,19 +69,16 @@ num_spans = st.sidebar.slider("Number of Continuous Spans", 1, 5, 2)
 # ==========================================
 # VISUALIZATION FUNCTIONS
 # ==========================================
-
 def plot_building_diagram(b, d):
     fig, ax = plt.subplots(figsize=(5, 3))
     rect = patches.Rectangle((0, 0), b, d, linewidth=2, edgecolor='black', facecolor='#f0f0f0')
     ax.add_patch(rect)
-    ax.text(b/2, -d*0.15, f"Width b = {b}m", ha='center', color='blue', fontweight='bold', family='sans-serif')
-    ax.text(-b*0.15, d/2, f"Depth d = {d}m", ha='right', va='center', rotation=90, color='green', fontweight='bold', family='sans-serif')
-    
+    ax.text(b/2, -d*0.15, f"Width b = {b}m", ha='center', color='blue', fontweight='bold')
+    ax.text(-b*0.15, d/2, f"Depth d = {d}m", ha='right', va='center', rotation=90, color='green', fontweight='bold')
     ax.arrow(b/2, d+d*0.3, 0, -d*0.2, head_width=b*0.05, head_length=d*0.05, fc='red', ec='red')
-    ax.text(b/2, d+d*0.35, "Wind 0°\n(Use h/d)", ha='center', color='red', fontsize=8, family='sans-serif')
+    ax.text(b/2, d+d*0.35, "Wind 0°\n(Use h/d)", ha='center', color='red', fontsize=8)
     ax.arrow(-b*0.3, d/2, b*0.2, 0, head_width=d*0.05, head_length=b*0.05, fc='orange', ec='orange')
-    ax.text(-b*0.35, d/2, "Wind 90°\n(Use h/b)", ha='center', va='center', rotation=90, color='orange', fontsize=8, family='sans-serif')
-    
+    ax.text(-b*0.35, d/2, "Wind 90°\n(Use h/b)", ha='center', va='center', rotation=90, color='orange', fontsize=8)
     ax.set_xlim(-b*0.5, b*1.5)
     ax.set_ylim(-d*0.3, d*1.5)
     ax.set_aspect('equal')
@@ -94,9 +86,57 @@ def plot_building_diagram(b, d):
     return fig
 
 # ==========================================
+# ASCII ART LIBRARY
+# ==========================================
+def get_ascii_art(zone_code):
+    """Returns ASCII art string for a specific zone."""
+    if zone_code == "RA1":
+        return """
+      +-----------------------------+
+      |                             |
+      |      [      RA 1      ]     |
+      |      [  GENERAL AREA  ]     |
+      |      [   Internal     ]     |
+      |                             |
+      +-----------------------------+
+      (Central area of the roof)
+        """
+    elif zone_code == "RA2":
+        return """
+      +#############################+
+      |#                           #|
+      |#     [      RA 2      ]    #|
+      |#     [      EDGES     ]    #|
+      |#                           #|
+      +#############################+
+      (Perimeter strips along edges)
+        """
+    elif zone_code == "RA3":
+        return """
+      ##---------------------------##
+      ##                           ##
+      |      [      RA 3      ]     |
+      |      [     CORNERS    ]     |
+      ##                           ##
+      ##---------------------------##
+      (Square areas at roof corners)
+        """
+    elif zone_code == "RA4":
+        return """
+      X-----------------------------X
+                                     
+             [      RA 4      ]      
+             [  HIGH SUCTION  ]      
+                                     
+      X-----------------------------X
+      (Small localized spots, usually 
+       at corner tips or accessories)
+        """
+    return ""
+
+# ==========================================
 # MAIN LOGIC
 # ==========================================
-
 if st.button("🚀 Run Analysis for All Zones"):
     Mn = structural.calculate_Mn(breaking_load, test_span, safety_factor)
     trib_width = wind_load.calculate_tributary_width(panel_w, panel_d, orient_key)
@@ -156,7 +196,6 @@ if st.button("🚀 Run Analysis for All Zones"):
     st.divider()
     st.header("📊 Analysis Report Summary")
     
-    # 1. Table
     st.subheader("1. Zone Analysis Summary")
     df_res = pd.DataFrame(results_list)
     st.dataframe(
@@ -167,7 +206,6 @@ if st.button("🚀 Run Analysis for All Zones"):
         use_container_width=True
     )
 
-    # 2. Diagrams
     st.divider()
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -192,7 +230,6 @@ if st.button("🚀 Run Analysis for All Zones"):
         st.write(f"- **V_des:** {v_des:.2f} m/s")
         st.write(f"- **Angle:** {roof_angle}° ({roof_type})")
         st.write(f"- **Direction:** {governing_case}")
-        st.write(f"- **Panel:** {panel_w}x{panel_d}m")
         st.write(f"- **Capacity (Mn):** {Mn:.3f} kNm")
 
     # ==========================
@@ -200,11 +237,16 @@ if st.button("🚀 Run Analysis for All Zones"):
     # ==========================
     st.divider()
     st.header("📄 Plain Text Report Preview")
-    st.caption("You can copy the report below or click 'Download'.")
     
-    # Convert table to string
     table_str = df_res.to_string(index=False, justify="right", float_format=lambda x: "{:.3f}".format(x))
     
+    # Generate ASCII Art Block
+    ascii_block = ""
+    for z in zones:
+        ascii_block += f"\n--- ZONE {z['code']} ({z['desc']}) ---"
+        ascii_block += get_ascii_art(z['code'])
+        ascii_block += "\n"
+
     report_text = f"""
 ================================================================================
                     SOLAR RAIL STRUCTURAL CALCULATION REPORT
@@ -244,31 +286,26 @@ if st.button("🚀 Run Analysis for All Zones"):
 [4] LIMITATIONS & CONDITIONS OF USE
 -----------------------------------
    1. Valid Design Scope:
-      This calculation is strictly valid ONLY for the conditions specified above:
       - Terrain Category: {tc}
       - Max Roof Height: {b_height} m
-      - Max Roof Angle: {roof_angle} degrees
       - Max Design Wind Speed: {v_des:.2f} m/s
       
    2. Prohibitions & Warnings:
       - DO NOT use this design if the building height exceeds {b_height} m.
-      - DO NOT use if the site topography suggests a multiplier Mt > {mt}.
-      - This report analyzes the ALUMINUM RAIL profile capacity ONLY.
-      - The Pull-out capacity of screws/fasteners to the roof structure IS NOT
-        covered by this report and must be verified separately using the 
-        'Max Reaction' forces provided in Section [2].
-      - Rail deflection checks (Serviceability) are not included in this output.
+      - The Pull-out capacity of screws/fasteners must be verified separately.
+      - Rail deflection checks (Serviceability) are not included.
 
+[5] ZONE VISUALIZATION GUIDE (ASCII ART)
+----------------------------------------
+   Below are visual representations of the roof zones referred to in Section [2].
+{ascii_block}
 ================================================================================
 Generated by Solar Rail App | Date: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
 ================================================================================
 """
 
-    # --- PREVIEW WITH COPY BUTTON ---
-    # Using st.code with language='text' creates a nice block with a Copy button
     st.code(report_text, language='text')
     
-    # Download Button
     st.download_button(
         label="💾 Download Report (.txt)",
         data=report_text,
