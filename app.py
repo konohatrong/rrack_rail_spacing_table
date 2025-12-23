@@ -15,7 +15,6 @@ st.markdown("""
     .reportview-container .main .block-container{ font-family: 'Tahoma', sans-serif; }
     h1, h2, h3 { font-family: 'Tahoma', sans-serif; }
     div.stButton > button { width: 100%; font-weight: bold; }
-    .stDownloadButton > button { width: 100%; border-color: #4CAF50; color: #4CAF50; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -27,14 +26,22 @@ st.markdown("**Structural Engineer & Software Developer:** Aluminum Rail Analysi
 # ==========================================
 @st.cache_data
 def load_rail_data():
-    """Load rail database (Mockup or from CSV)"""
-    data = {
-        'Brand': ['Generic', 'SolarRail-X', 'Alu-Pro', 'Eco-Mount'],
-        'Model': ['Standard', 'SR-40Heavy', 'AP-60', 'EM-Light'],
-        'Breaking Load (kN)': [5.0, 7.5, 6.2, 3.8],
-        'Test Span (m)': [1.0, 1.2, 1.0, 0.8]
-    }
-    return pd.DataFrame(data)
+    """Load rail database from GitHub"""
+    try:
+        # Using the RAW URL for the user's file
+        url = "https://raw.githubusercontent.com/konohatrong/rrack_rail_spacing_table/main/rail_data.csv"
+        df = pd.read_csv(url)
+        return df
+    except Exception as e:
+        st.warning(f"Could not load data from GitHub. Using dummy data. Error: {e}")
+        # Fallback Mockup Data
+        data = {
+            'Brand': ['Generic', 'SolarRail-X', 'Alu-Pro'],
+            'Model': ['Standard', 'SR-40Heavy', 'AP-60'],
+            'Breaking Load (kN)': [5.0, 7.5, 6.2],
+            'Test Span (m)': [1.0, 1.2, 1.0]
+        }
+        return pd.DataFrame(data)
 
 def get_csv_template():
     """Generate CSV template string"""
@@ -49,19 +56,20 @@ df_rails = load_rail_data()
 
 st.sidebar.header("1. Wind Parameters (AS/NZS 1170.0/1170.2)")
 
-# --- A. PROBABILITY & REGION ---
+# --- PROBABILITY & REGION ---
 st.sidebar.markdown("**Step A: Importance & Probability**")
 region_list = ["A0", "A1", "A2", "A3", "A4", "A5", "B1", "B2", "C", "D"]
 region = st.sidebar.selectbox("Wind Region", region_list, index=1)
-imp_level = st.sidebar.selectbox("Importance Level (IL)", [1, 2, 3, 4], index=1)
+imp_level = st.sidebar.selectbox("Importance Level (IL)", [1, 2, 3, 4], index=1, help="AS/NZS 1170.0 Table 3.3")
 design_life = st.sidebar.selectbox("Design Working Life (Years)", [5, 25, 50, 100], index=2)
 
+# Calculate Vr based on IL and Life
 ret_period = wind_load.get_return_period(imp_level, design_life)
 vr = wind_load.get_vr_from_ari(region, ret_period)
 
 st.sidebar.info(f"**Calculated Values:**\n- Return Period (R): 1/{ret_period}\n- Regional Speed ($V_R$): {vr} m/s")
 
-# --- B. MULTIPLIERS ---
+# --- MULTIPLIERS ---
 st.sidebar.markdown("**Step B: Site Multipliers**")
 md = st.sidebar.number_input("Direction Multiplier, Md", value=1.0, min_value=0.8, max_value=1.0)
 tc = st.sidebar.selectbox("Terrain Category (TC)", [1, 2, 2.5, 3, 4], index=3)
@@ -94,15 +102,12 @@ kc = st.sidebar.number_input("Comb. Factor (Kc)", value=1.0)
 # --- STRUCTURAL ---
 st.sidebar.header("4. Structural Test Data")
 
-# --- NEW: DOWNLOAD TEMPLATE BUTTON ---
 st.sidebar.download_button(
-    label="📥 Download Excel/CSV Template",
+    label="📥 Download Template",
     data=get_csv_template(),
     file_name="rail_data_template.csv",
-    mime="text/csv",
-    help="Download this template to fill in your own rail data."
+    mime="text/csv"
 )
-st.sidebar.markdown("---")
 
 # Rail Selection
 rail_options = ["Custom Input"] + [f"{row['Brand']} - {row['Model']}" for i, row in df_rails.iterrows()]
@@ -140,9 +145,9 @@ def plot_building_diagram(b, d, r_type):
     ax.text(b/2, -d*0.15, f"Width b = {b}m", ha='center', color='blue', fontweight='bold', family='sans-serif')
     ax.text(-b*0.15, d/2, f"Depth d = {d}m", ha='right', va='center', rotation=90, color='green', fontweight='bold', family='sans-serif')
     ax.arrow(b/2, d+d*0.3, 0, -d*0.2, head_width=b*0.05, head_length=d*0.05, fc='red', ec='red')
-    ax.text(b/2, d+d*0.35, "Wind 0° (Normal)\n(Use h/d)", ha='center', color='red', fontsize=8, family='sans-serif')
+    ax.text(b/2, d+d*0.35, "Wind 0° (Normal)", ha='center', color='red', fontsize=8, family='sans-serif')
     ax.arrow(-b*0.3, d/2, b*0.2, 0, head_width=d*0.05, head_length=b*0.05, fc='orange', ec='orange')
-    ax.text(-b*0.35, d/2, "Wind 90° (Parallel)\n(Use h/b)", ha='center', va='center', rotation=90, color='orange', fontsize=8, family='sans-serif')
+    ax.text(-b*0.35, d/2, "Wind 90° (Parallel)", ha='center', va='center', rotation=90, color='orange', fontsize=8, family='sans-serif')
     if "Gable" in r_type:
         ax.plot([0, b], [d/2, d/2], color='purple', linestyle='-.', linewidth=2.5)
         ax.text(b*0.02, d/2 + d*0.03, "RIDGE LINE", color='purple', fontsize=9, fontweight='bold', ha='left')
@@ -156,27 +161,21 @@ def plot_panel_load_diagram(pw, pd, orient, trib_w):
     fig, ax = plt.subplots(figsize=(5, 5))
     panel = patches.Rectangle((0, 0), pw, pd, linewidth=2, edgecolor='black', facecolor='white', label='Panel')
     ax.add_patch(panel)
-    
     if orient == 'width':
         rail_y1, rail_y2 = pd * 0.25, pd * 0.75
         ax.axhline(rail_y1, color='blue', linewidth=3, linestyle='--', label='Rail')
         ax.axhline(rail_y2, color='blue', linewidth=3, linestyle='--')
         rect_trib = patches.Rectangle((0, 0), pw, pd/2, linewidth=0, facecolor='red', alpha=0.2, label='Trib. Area')
         ax.add_patch(rect_trib)
-        
-        # Dimension Line (Vertical on right)
         dim_x = pw + 0.15
         ax.annotate('', xy=(dim_x, 0), xytext=(dim_x, pd/2), arrowprops=dict(arrowstyle='<->', color='red', lw=1.5))
         ax.text(dim_x + 0.05, pd/4, f"Trib = {trib_w:.3f} m", color='red', rotation=90, va='center')
-        
     else:
         rail_x1, rail_x2 = pw * 0.25, pw * 0.75
         ax.axvline(rail_x1, color='blue', linewidth=3, linestyle='--', label='Rail')
         ax.axvline(rail_x2, color='blue', linewidth=3, linestyle='--')
         rect_trib = patches.Rectangle((0, 0), pw/2, pd, linewidth=0, facecolor='red', alpha=0.2, label='Trib. Area')
         ax.add_patch(rect_trib)
-        
-        # Dimension Line (Horizontal on top)
         dim_y = pd + 0.15
         ax.annotate('', xy=(0, dim_y), xytext=(pw/2, dim_y), arrowprops=dict(arrowstyle='<->', color='red', lw=1.5))
         ax.text(pw/4, dim_y + 0.05, f"Trib = {trib_w:.3f} m", color='red', ha='center')
@@ -205,7 +204,9 @@ def plot_fem_diagrams_annotated(analysis_res, zone_name):
     v_max_idx = np.argmax(np.abs(shear))
     v_val = shear[v_max_idx]
     ax1.plot(x[v_max_idx], v_val, 'ro')
-    ax1.annotate(f"V*={abs(v_val):.2f} kN", xy=(x[v_max_idx], v_val), xytext=(10,10), textcoords="offset points", color='red', fontweight='bold')
+    # Annotation
+    ax1.annotate(f"V*={abs(v_val):.2f} kN", xy=(x[v_max_idx], v_val), xytext=(10, 10 if v_val>0 else -15), textcoords="offset points", color='red', fontweight='bold')
+    
     # BMD
     moment = analysis_res['moment']
     ax2.plot(x, moment, 'r-')
@@ -217,7 +218,9 @@ def plot_fem_diagrams_annotated(analysis_res, zone_name):
     m_max_idx = np.argmax(np.abs(moment))
     m_val = moment[m_max_idx]
     ax2.plot(x[m_max_idx], m_val, 'bo')
-    ax2.annotate(f"M*={abs(m_val):.2f} kNm", xy=(x[m_max_idx], m_val), xytext=(10,10), textcoords="offset points", color='blue', fontweight='bold')
+    # Annotation
+    ax2.annotate(f"M*={abs(m_val):.2f} kNm", xy=(x[m_max_idx], m_val), xytext=(10, 10 if m_val>0 else -15), textcoords="offset points", color='blue', fontweight='bold')
+    
     plt.tight_layout()
     return fig
 
@@ -320,7 +323,7 @@ if st.button("🚀 Run Analysis for All Zones"):
     st.divider()
     st.header("📊 Analysis Report Summary")
     
-    # 1. INPUT & GEOMETRY
+    # 1. INPUT & GEOMETRY (Ordered First)
     st.subheader("1. Input Summary & Geometry")
     col_in1, col_in2 = st.columns([1, 1])
     with col_in1:
@@ -362,7 +365,7 @@ if st.button("🚀 Run Analysis for All Zones"):
 
     st.divider()
 
-    # 4. CRITICAL CASE
+    # 4. CRITICAL CASE DETAILS (Ordered Last)
     st.subheader(f"4. Critical Case Analysis ({worst_case_res['zone']})")
     col_crit1, col_crit2 = st.columns([1, 2])
     with col_crit1:
@@ -371,11 +374,12 @@ if st.button("🚀 Run Analysis for All Zones"):
         st.metric("V* (Max Shear)", f"{np.max(np.abs(worst_case_res['fem']['shear'])):.2f} kN")
         st.metric("Max Reaction", f"{worst_case_res['reaction']:.2f} kN")
         st.caption(f"Occurs in **{worst_case_res['zone']}** at Max Span **{worst_case_res['span']:.2f} m**")
+    
     with col_crit2:
         st.pyplot(plot_fem_diagrams_annotated(worst_case_res['fem'], worst_case_res['zone']))
 
     # ==========================================
-    # REPORT GENERATION (FULL CONTENT FIX)
+    # REPORT GENERATION
     # ==========================================
     st.divider()
     st.header("📄 Plain Text Report")
