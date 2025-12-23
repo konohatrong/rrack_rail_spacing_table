@@ -10,6 +10,18 @@ import pandas as pd
 # Set page configuration
 st.set_page_config(page_title="Solar Rail Design (AS/NZS 1170.2)", layout="wide")
 
+# Custom CSS to try and make the UI look cleaner (Tahoma-ish for UI elements)
+st.markdown("""
+<style>
+    .reportview-container .main .block-container{
+        font-family: 'Tahoma', sans-serif;
+    }
+    h1, h2, h3 {
+        font-family: 'Tahoma', sans-serif;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🏗️ Solar Rail Design & Analysis (AS/NZS 1170.2:2021)")
 st.markdown("**Structural Engineer & Software Developer:** Aluminum Rail Analysis for Solar PV")
 
@@ -65,15 +77,15 @@ num_spans = st.sidebar.slider("Number of Continuous Spans", 1, 5, 2)
 
 def plot_building_diagram(b, d):
     fig, ax = plt.subplots(figsize=(5, 3))
-    rect = patches.Rectangle((0, 0), b, d, linewidth=2, edgecolor='black', facecolor='#e0e0e0')
+    rect = patches.Rectangle((0, 0), b, d, linewidth=2, edgecolor='black', facecolor='#f0f0f0')
     ax.add_patch(rect)
-    ax.text(b/2, -d*0.15, f"Width b = {b}m", ha='center', color='blue', fontweight='bold')
-    ax.text(-b*0.15, d/2, f"Depth d = {d}m", ha='right', va='center', rotation=90, color='green', fontweight='bold')
+    ax.text(b/2, -d*0.15, f"Width b = {b}m", ha='center', color='blue', fontweight='bold', family='sans-serif')
+    ax.text(-b*0.15, d/2, f"Depth d = {d}m", ha='right', va='center', rotation=90, color='green', fontweight='bold', family='sans-serif')
     
     ax.arrow(b/2, d+d*0.3, 0, -d*0.2, head_width=b*0.05, head_length=d*0.05, fc='red', ec='red')
-    ax.text(b/2, d+d*0.35, "Wind 0°\n(Use h/d)", ha='center', color='red', fontsize=8)
+    ax.text(b/2, d+d*0.35, "Wind 0°\n(Use h/d)", ha='center', color='red', fontsize=8, family='sans-serif')
     ax.arrow(-b*0.3, d/2, b*0.2, 0, head_width=d*0.05, head_length=b*0.05, fc='orange', ec='orange')
-    ax.text(-b*0.35, d/2, "Wind 90°\n(Use h/b)", ha='center', va='center', rotation=90, color='orange', fontsize=8)
+    ax.text(-b*0.35, d/2, "Wind 90°\n(Use h/b)", ha='center', va='center', rotation=90, color='orange', fontsize=8, family='sans-serif')
     
     ax.set_xlim(-b*0.5, b*1.5)
     ax.set_ylim(-d*0.3, d*1.5)
@@ -139,7 +151,7 @@ if st.button("🚀 Run Analysis for All Zones"):
             }
 
     # ==========================
-    # DISPLAY RESULTS
+    # DISPLAY RESULTS UI
     # ==========================
     st.divider()
     st.header("📊 Analysis Report Summary")
@@ -155,99 +167,111 @@ if st.button("🚀 Run Analysis for All Zones"):
         use_container_width=True
     )
 
-    # 2. Wind & Critical Case
+    # 2. Diagrams
     st.divider()
     col1, col2 = st.columns([1, 1])
     with col1:
-        st.subheader("2. Critical Case Diagrams")
-        st.info(f"Showing Worst Case: **{worst_case_res['zone']}** (Highest Load)")
+        st.subheader(f"2. Critical Case: {worst_case_res['zone']}")
         fig_fem, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 5), sharex=True)
-        # SFD
         res = worst_case_res['fem']
         ax1.plot(res['x'], res['shear'], 'b-')
         ax1.fill_between(res['x'], res['shear'], color='blue', alpha=0.1)
         ax1.set_ylabel("Shear (kN)")
         max_r = np.max(np.abs(res['reactions']))
-        ax1.text(0, max_r, f"R_max={max_r:.2f}kN", color='red', fontweight='bold')
-        # BMD
+        ax1.text(0, max_r, f"Max R={max_r:.2f}kN", color='red', fontweight='bold')
+        ax1.grid(True, linestyle=':')
+        
         ax2.plot(res['x'], res['moment'], 'r-')
         ax2.fill_between(res['x'], res['moment'], color='red', alpha=0.1)
         ax2.set_ylabel("Moment (kNm)")
+        ax2.grid(True, linestyle=':')
         st.pyplot(fig_fem)
         
     with col2:
-        st.subheader("3. Input Parameters")
-        st.write(f"- **Wind Speed:** {v_des:.2f} m/s")
-        st.write(f"- **Roof Angle:** {roof_angle}° ({roof_type})")
-        st.write(f"- **Base Cp,e:** {base_cpe:.2f}")
+        st.subheader("3. Input Summary")
+        st.write(f"- **V_des:** {v_des:.2f} m/s")
+        st.write(f"- **Angle:** {roof_angle}° ({roof_type})")
         st.write(f"- **Direction:** {governing_case}")
-        st.write(f"- **Panel:** {panel_w}x{panel_d}m (Trib: {trib_width:.3f}m)")
-        st.write(f"- **Mn Capacity:** {Mn:.3f} kNm")
+        st.write(f"- **Panel:** {panel_w}x{panel_d}m")
+        st.write(f"- **Capacity (Mn):** {Mn:.3f} kNm")
 
     # ==========================
-    # REPORT GENERATION (Plain Text)
+    # REPORT GENERATION
     # ==========================
     st.divider()
-    st.subheader("📄 Full Report Preview")
+    st.header("📄 Plain Text Report Preview")
+    st.caption("You can copy the report below or click 'Download'.")
     
-    # Use to_string() instead of to_markdown() to avoid tabulate dependency
+    # Convert table to string
     table_str = df_res.to_string(index=False, justify="right", float_format=lambda x: "{:.3f}".format(x))
     
     report_text = f"""
-========================================================================
-             SOLAR RAIL STRUCTURAL CALCULATION REPORT
-                   Standard: AS/NZS 1170.2:2021
-========================================================================
+================================================================================
+                    SOLAR RAIL STRUCTURAL CALCULATION REPORT
+                          Standard: AS/NZS 1170.2:2021
+================================================================================
 
-[1] PROJECT PARAMETERS
-----------------------
-   - Regional Wind Speed (Vr):  {vr} m/s
-   - Multipliers: Md={md}, Ms={ms}, Mt={mt}
-   - Terrain Category (TC):     {tc}
-   - Roof Height (z):           {b_height} m (Mz,cat = {mz_cat:.2f})
-   - Design Wind Speed (Vdes):  {v_des:.2f} m/s
+[1] PROJECT INFORMATION & INPUTS
+--------------------------------
+   - Regional Wind Speed (Vr):   {vr} m/s
+   - Multipliers:                Md={md}, Ms={ms}, Mt={mt}
+   - Design Wind Speed (Vdes):   {v_des:.2f} m/s
    
-   - Building Size (b x d):     {b_width} x {b_depth} m
-   - Roof Type:                 {roof_type} ({roof_angle} deg)
-   - Governing Wind Case:       {governing_case}
-   - Base Cp,e:                 {base_cpe:.2f}
+   - Terrain Category:           {tc}
+   - Building Dimensions:        {b_width} m (W) x {b_depth} m (D) x {b_height} m (H)
+   - Roof Configuration:         {roof_type}, Angle {roof_angle} deg
+   
+   - Rail Capacity (Mn):         {Mn:.3f} kNm 
+     (Based on Test: Break Load {breaking_load} kN, Span {test_span} m, SF {safety_factor})
 
-[2] COMPONENT DATA
-------------------
-   - Rail Material Capacity (Mn): {Mn:.3f} kNm
-     (Derived from Breaking Load: {breaking_load} kN / Test Span: {test_span} m)
-   - Solar Panel Size:          {panel_w} m (W) x {panel_d} m (D)
-   - Rail Orientation:          Parallel to {rail_orient}
-   - Tributary Width:           {trib_width:.3f} m
-
-[3] STRUCTURAL ANALYSIS SUMMARY (ALL ZONES)
--------------------------------------------
-Note: 'Max Span' is the maximum allowable spacing between supports 
-      to ensure Bending Moment < Mn.
+[2] ANALYSIS RESULTS SUMMARY (ALL ZONES)
+----------------------------------------
+   - Governing Wind Direction:   {governing_case}
+   - Base External Cp,e:         {base_cpe:.2f}
+   - Tributary Width:            {trib_width:.3f} m
 
 {table_str}
 
-[4] CRITICAL RESULT (WORST CASE)
---------------------------------
-   - Critical Zone:      {worst_case_res['zone']}
-   - Design Pressure:    {worst_case_res['pressure']:.3f} kPa
-   - Line Load on Rail:  {worst_case_res['load']:.3f} kN/m
-   - Max Allowable Span: {worst_case_res['span']:.2f} m
-   - Max Reaction Force: {df_res.loc[df_res['Zone'] == worst_case_res['zone'], 'Reaction (kN)'].values[0]:.3f} kN
+[3] CRITICAL DESIGN VALUES (WORST CASE SCENARIO)
+------------------------------------------------
+   The most critical condition occurs in Zone: {worst_case_res['zone']}
+   
+   >> Max Design Pressure:       {worst_case_res['pressure']:.3f} kPa
+   >> Max Line Load on Rail:     {worst_case_res['load']:.3f} kN/m
+   >> Max Allowable Span:        {worst_case_res['span']:.2f} m
+   >> Max Uplift Reaction:       {df_res.loc[df_res['Zone'] == worst_case_res['zone'], 'Reaction (kN)'].values[0]:.3f} kN
 
-   >> Recommendation: Use the 'Max Span' from the table corresponding 
-      to the specific installation zone on the roof.
+[4] LIMITATIONS & CONDITIONS OF USE
+-----------------------------------
+   1. Valid Design Scope:
+      This calculation is strictly valid ONLY for the conditions specified above:
+      - Terrain Category: {tc}
+      - Max Roof Height: {b_height} m
+      - Max Roof Angle: {roof_angle} degrees
+      - Max Design Wind Speed: {v_des:.2f} m/s
+      
+   2. Prohibitions & Warnings:
+      - DO NOT use this design if the building height exceeds {b_height} m.
+      - DO NOT use if the site topography suggests a multiplier Mt > {mt}.
+      - This report analyzes the ALUMINUM RAIL profile capacity ONLY.
+      - The Pull-out capacity of screws/fasteners to the roof structure IS NOT
+        covered by this report and must be verified separately using the 
+        'Max Reaction' forces provided in Section [2].
+      - Rail deflection checks (Serviceability) are not included in this output.
 
-========================================================================
-Generated by Solar Rail App
+================================================================================
+Generated by Solar Rail App | Date: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
+================================================================================
 """
-    # Show Preview
-    st.text_area("Plain Text Report Content:", value=report_text, height=500, help="This is exactly what will be in the text file.")
+
+    # --- PREVIEW WITH COPY BUTTON ---
+    # Using st.code with language='text' creates a nice block with a Copy button
+    st.code(report_text, language='text')
     
     # Download Button
     st.download_button(
-        label="💾 Download Report as .txt",
+        label="💾 Download Report (.txt)",
         data=report_text,
-        file_name="solar_rail_report.txt",
+        file_name="Solar_Rail_Report.txt",
         mime="text/plain"
     )
