@@ -15,16 +15,15 @@ st.markdown("""
     .reportview-container .main .block-container{ font-family: 'Tahoma', sans-serif; }
     h1, h2, h3 { font-family: 'Tahoma', sans-serif; }
     div.stButton > button { width: 100%; font-weight: bold; }
-    .stDownloadButton > button { width: 100%; border-color: #4CAF50; color: #4CAF50; }
+    .calculation-box { background-color: #f8f9fa; padding: 15px; border-radius: 5px; border-left: 4px solid #28a745; margin-bottom: 10px; }
+    .info-box { background-color: #e7f3fe; padding: 15px; border-radius: 5px; border-left: 4px solid #2196f3; margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🏗️ Solar Rail Design & Analysis (AS/NZS 1170.2:2021)")
 st.markdown("**Structural Engineer & Software Developer:** Aluminum Rail Analysis for Solar PV")
 
-# ==========================================
-# 0. DATA FUNCTIONS
-# ==========================================
+# ... (Data Functions load_rail_data / get_csv_template - เหมือนเดิม) ...
 @st.cache_data
 def load_rail_data():
     try:
@@ -32,12 +31,7 @@ def load_rail_data():
         df = pd.read_csv(url)
         return df
     except Exception:
-        data = {
-            'Brand': ['Generic', 'SolarRail-X'],
-            'Model': ['Standard', 'SR-40Heavy'],
-            'Breaking Load (kN)': [5.0, 7.5],
-            'Test Span (m)': [1.0, 1.2]
-        }
+        data = {'Brand': ['Generic'], 'Model': ['Standard'], 'Breaking Load (kN)': [5.0], 'Test Span (m)': [1.0]}
         return pd.DataFrame(data)
 
 def get_csv_template():
@@ -50,7 +44,6 @@ df_rails = load_rail_data()
 # SIDEBAR INPUTS
 # ==========================================
 st.sidebar.header("1. Wind Parameters")
-st.sidebar.markdown("**Step A: Probability (AS/NZS 1170.0)**")
 region = st.sidebar.selectbox("Wind Region", ["A0", "A1", "A2", "A3", "A4", "A5", "B1", "B2", "C", "D"], index=1)
 imp_level = st.sidebar.selectbox("Importance Level (IL)", [1, 2, 3, 4], index=1)
 design_life = st.sidebar.selectbox("Design Life (Years)", [5, 25, 50, 100], index=2)
@@ -86,14 +79,12 @@ kc = st.sidebar.number_input("Kc", 1.0)
 
 st.sidebar.header("4. Structural Data")
 st.sidebar.download_button("📥 Download Template", get_csv_template(), "rail_template.csv", "text/csv")
-
 rail_opts = ["Custom Input"] + [f"{r['Brand']} - {r['Model']}" for i, r in df_rails.iterrows()]
 sel_rail = st.sidebar.selectbox("Select Rail", rail_opts)
 
 if sel_rail != "Custom Input":
     r_data = df_rails[(df_rails['Brand'] == sel_rail.split(" - ")[0]) & (df_rails['Model'] == sel_rail.split(" - ")[1])].iloc[0]
-    def_brand, def_model, def_bk, def_sp = r_data['Brand'], r_data['Model'], float(r_data['Breaking Load (kN)']), float(r_data['Test Span (m)'])
-    dis = True
+    def_brand, def_model, def_bk, def_sp, dis = r_data['Brand'], r_data['Model'], float(r_data['Breaking Load (kN)']), float(r_data['Test Span (m)']), True
 else:
     def_brand, def_model, def_bk, def_sp, dis = "Custom", "-", 5.0, 1.0, False
 
@@ -101,12 +92,11 @@ rail_brand = st.sidebar.text_input("Brand", def_brand, disabled=dis)
 rail_model = st.sidebar.text_input("Model", def_model, disabled=dis)
 breaking_load = st.sidebar.number_input("Breaking Load (kN)", def_bk, disabled=dis)
 test_span = st.sidebar.number_input("Test Span (m)", def_sp, disabled=dis)
+# Unlocked Safety Factor
 safety_factor = st.sidebar.number_input("Safety Factor", value=1.1, min_value=0.001, step=0.01, format="%.3f")
 num_spans = st.sidebar.slider("Spans", 1, 5, 2)
 
-# ==========================================
-# VISUALIZATION FUNCTIONS
-# ==========================================
+# ... (Visual Functions plot_building_diagram, plot_panel_load, plot_fem - เหมือนเดิม) ...
 def plot_building_diagram(b, d, r_type):
     fig, ax = plt.subplots(figsize=(5, 3))
     rect = patches.Rectangle((0, 0), b, d, linewidth=2, edgecolor='black', facecolor='#f0f0f0')
@@ -154,7 +144,7 @@ def plot_fem(res, zone):
     return fig
 
 # ==========================================
-# MAIN LOGIC (WITH SESSION STATE)
+# MAIN LOGIC
 # ==========================================
 if st.button("🚀 Run Analysis"):
     Mn = structural.calculate_Mn(breaking_load, test_span, safety_factor)
@@ -168,17 +158,14 @@ if st.button("🚀 Run Analysis"):
     else:
         base_cpe, gov_case, note = res90['cpe'], f"Wind 90° (Parallel) | h/b={r90:.2f}", "Wind 90° is critical"
 
-    zones = [{"code": "RA1", "desc": "General Area", "kl": 1.0}, {"code": "RA2", "desc": "Edges/Ridge", "kl": 1.5}, 
+    zones = [{"code": "RA1", "desc": "General", "kl": 1.0}, {"code": "RA2", "desc": "Edges", "kl": 1.5}, 
              {"code": "RA3", "desc": "Corners", "kl": 2.0}, {"code": "RA4", "desc": "High Suction", "kl": 3.0}]
     
-    results = []
-    worst_res = None
-    max_p = -1.0
+    results, worst_res, max_p = [], None, -1.0
     
     for z in zones:
         p_z = wind_load.calculate_wind_pressure(v_des, base_cpe, ka, kc, z['kl'])
         w_z = p_z * trib_width
-        
         span, fem, history = structural.optimize_span(Mn, w_z, num_spans, max_span=4.0)
         
         rxn = np.abs(fem['reactions'])
@@ -191,12 +178,11 @@ if st.button("🚀 Run Analysis"):
             "Pressure (kPa)": p_z, "Line Load (kN/m)": w_z, "Max Span (m)": span,
             "Reaction (kN)": np.max(rxn), "M* (kNm)": mom, "history": history
         })
-        
         if p_z > max_p:
             max_p = p_z
             worst_res = {'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
-                         'load': w_z, 'moment': mom, 'shear_max': shr, 'reaction': np.max(rxn),
-                         'rxn_edge': rxn_edge, 'rxn_int': rxn_int}
+                         'load': w_z, 'moment': mom, 'shear_max': shr, 
+                         'reaction': np.max(rxn), 'rxn_edge': rxn_edge, 'rxn_int': rxn_int}
 
     st.session_state['results'] = results
     st.session_state['worst_res'] = worst_res
@@ -215,46 +201,68 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
 
     st.divider(); st.header("📊 Analysis Report Summary")
     
-    # 1. Input
-    st.subheader("1. Input Summary"); c1, c2 = st.columns([1, 1])
-    with c1: st.write(f"**Rail:** {rail_brand}"); st.write(f"**Vdes:** {v_des:.2f} m/s"); st.write(f"**Mn:** {s_dat['Mn']:.3f} kNm")
-    with c2: st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
-
-    # 2. Wind
-    st.divider(); st.subheader("2. Wind Analysis"); c1, c2 = st.columns([1, 1])
-    with c1: st.write(f"**Wind 0°:** {w_dat['res0']['cpe']:.2f}"); st.write(f"**Wind 90°:** {w_dat['res90']['cpe']:.2f}"); st.info(f"**Governing:** {w_dat['gov_case']}")
-    with c2: st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
-
-    # 3. Table (FIXED)
-    st.divider(); st.subheader("3. Zone Analysis Summary")
-    df_res = pd.DataFrame(res_list)
-    # Remove history column for display
-    df_display = df_res.drop(columns=['history'], errors='ignore')
+    # --- 1. INPUT VERIFICATION ---
+    st.subheader("1. Detailed Input Verification")
     
-    # Apply format specifically to numeric columns only
-    st.dataframe(
-        df_display.style.format({
-            "Pressure (kPa)": "{:.3f}",
-            "Line Load (kN/m)": "{:.3f}",
-            "Max Span (m)": "{:.2f}",
-            "M* (kNm)": "{:.3f}",
-            "Reaction (kN)": "{:.2f}",
-            "Kl": "{:.1f}"
-        }),
-        use_container_width=True
-    )
+    # Wind Speed Calculation Block
+    st.markdown('<div class="calculation-box">', unsafe_allow_html=True)
+    st.markdown("#### A. Design Wind Speed ($V_{des}$) Calculation")
+    st.markdown("Ref: AS/NZS 1170.2 Eq. 2.2")
+    st.latex(r"V_{des} = V_R \cdot M_d \cdot (M_{z,cat} \cdot M_s \cdot M_t)")
+    
+    c1, c2, c3 = st.columns(3)
+    c1.write(f"**Vr (Region {region}):** {vr} m/s")
+    c1.caption(f"Importance L{imp_level}, Life {design_life}y")
+    c2.write(f"**Mz,cat:** {mz_cat:.2f}")
+    c2.caption(f"Terrain Cat {tc}, z={b_height}m")
+    c3.write(f"**Multipliers:** Md={md}, Ms={ms}, Mt={mt}")
+    
+    st.markdown(f"**Substitution:** {vr} * {md} * ({mz_cat:.2f} * {ms} * {mt})")
+    st.success(f"**Result: Vdes = {v_des:.2f} m/s**")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # 4. Critical
-    st.divider(); st.subheader(f"4. Critical Case: {w_res['zone']}")
-    c1, c2 = st.columns([1, 2])
-    with c1: 
-        st.metric("M*", f"{w_res['moment']:.3f}")
-        st.metric("V*", f"{w_res['shear_max']:.3f}")
-        st.metric("Reaction (End)", f"{w_res['rxn_edge']:.3f}")
-        st.metric("Reaction (Mid)", f"{w_res['rxn_int']:.3f}")
-    with c2: st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
+    # --- 2. WIND ANALYSIS ---
+    st.subheader("2. Wind Analysis ($C_{p,e}$ Selection)")
+    st.markdown('<div class="info-box">', unsafe_allow_html=True)
+    st.markdown("#### B. External Pressure Coefficient ($C_{p,e}$) Selection")
+    st.markdown(f"**Roof Configuration:** {roof_type} with Angle **{roof_angle}°**")
+    
+    w1, w2 = st.columns(2)
+    with w1:
+        st.write("**Case 1: Wind 0° (Normal)**")
+        st.write(f"- Aspect Ratio (h/d): {b_height}/{b_depth} = **{w_dat['r0']:.2f}**")
+        st.write(f"- Result Cpe: **{w_dat['res0']['cpe']:.2f}**")
+    with w2:
+        st.write("**Case 2: Wind 90° (Parallel)**")
+        st.write(f"- Aspect Ratio (h/b): {b_height}/{b_width} = **{w_dat['r90']:.2f}**")
+        st.write(f"- Result Cpe: **{w_dat['res90']['cpe']:.2f}**")
+        
+    st.warning(f"**Selected Governing Case:** {w_dat['gov_case']} (Most critical suction)")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # Report Generation
+    # --- 3. ZONE TABLE ---
+    st.subheader("3. Zone Analysis Summary")
+    df_res = pd.DataFrame(res_list)
+    df_disp = df_res.drop(columns=['history'], errors='ignore')
+    st.dataframe(df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]].style.format("{:.3f}"), use_container_width=True)
+
+    # --- 4. CRITICAL CASE ---
+    st.subheader(f"4. Critical Case Analysis ({w_res['zone']})")
+    
+    col_crit1, col_crit2 = st.columns([1, 2])
+    with col_crit1:
+        st.markdown("### Design Actions")
+        st.metric("M* (Design Moment)", f"{w_res['moment']:.3f} kNm", f"Capacity: {s_dat['Mn']:.3f}")
+        st.metric("Max Span", f"{w_res['span']:.2f} m")
+        
+        st.markdown("#### Reaction Forces (For Clamp Design)")
+        st.write(f"- **End Support:** {w_res['rxn_edge']:.3f} kN")
+        st.write(f"- **Mid Support:** {w_res['rxn_int']:.3f} kN")
+        
+    with col_crit2:
+        st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
+
+    # REPORT GENERATION
     st.divider(); st.header("📄 Plain Text Report")
     inp_d = {
         'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
