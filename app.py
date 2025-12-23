@@ -44,8 +44,8 @@ st.sidebar.success(f"**Design Wind Speed ($V_{{des}}$) = {v_des:.2f} m/s**")
 
 # --- 2. Building Geometry ---
 st.sidebar.header("2. Building Geometry")
-b_width = st.sidebar.number_input("Building Width, b (m)", value=20.0)
-b_depth = st.sidebar.number_input("Building Depth, d (m)", value=15.0)
+b_width = st.sidebar.number_input("Building Width, b (m)", value=20.0, help="Width perpendicular to Ridge (typically)")
+b_depth = st.sidebar.number_input("Building Depth, d (m)", value=15.0, help="Length parallel to Ridge")
 roof_type = st.sidebar.radio("Roof Shape", ["Monoslope", "Gable Roof"])
 roof_angle = st.sidebar.number_input("Roof Angle (Degrees)", min_value=0.0, max_value=60.0, value=10.0, step=0.5)
 
@@ -69,16 +69,39 @@ num_spans = st.sidebar.slider("Number of Continuous Spans", 1, 5, 2)
 # ==========================================
 # VISUALIZATION FUNCTIONS
 # ==========================================
-def plot_building_diagram(b, d):
+def plot_building_diagram(b, d, r_type):
     fig, ax = plt.subplots(figsize=(5, 3))
+    
+    # 1. Draw Building Rect
     rect = patches.Rectangle((0, 0), b, d, linewidth=2, edgecolor='black', facecolor='#f0f0f0')
     ax.add_patch(rect)
-    ax.text(b/2, -d*0.15, f"Width b = {b}m", ha='center', color='blue', fontweight='bold')
-    ax.text(-b*0.15, d/2, f"Depth d = {d}m", ha='right', va='center', rotation=90, color='green', fontweight='bold')
+    
+    # 2. Dimensions
+    ax.text(b/2, -d*0.15, f"Width b = {b}m", ha='center', color='blue', fontweight='bold', family='sans-serif')
+    ax.text(-b*0.15, d/2, f"Depth d = {d}m", ha='right', va='center', rotation=90, color='green', fontweight='bold', family='sans-serif')
+    
+    # 3. Wind Arrows
+    # Wind 0 (Red) -> Normal to Ridge (Transverse)
     ax.arrow(b/2, d+d*0.3, 0, -d*0.2, head_width=b*0.05, head_length=d*0.05, fc='red', ec='red')
-    ax.text(b/2, d+d*0.35, "Wind 0°\n(Use h/d)", ha='center', color='red', fontsize=8)
+    ax.text(b/2, d+d*0.35, "Wind 0° (Normal)\n(Use h/d)", ha='center', color='red', fontsize=8, family='sans-serif')
+    
+    # Wind 90 (Orange) -> Parallel to Ridge (Longitudinal)
     ax.arrow(-b*0.3, d/2, b*0.2, 0, head_width=d*0.05, head_length=b*0.05, fc='orange', ec='orange')
-    ax.text(-b*0.35, d/2, "Wind 90°\n(Use h/b)", ha='center', va='center', rotation=90, color='orange', fontsize=8)
+    ax.text(-b*0.35, d/2, "Wind 90° (Parallel)\n(Use h/b)", ha='center', va='center', rotation=90, color='orange', fontsize=8, family='sans-serif')
+
+    # 4. RIDGE LINE (New Feature)
+    if "Gable" in r_type:
+        # Draw Ridge Line horizontally (Assuming Wind 0 is transverse/normal to ridge)
+        # Coordinates: (0, d/2) to (b, d/2)
+        ax.plot([0, b], [d/2, d/2], color='purple', linestyle='-.', linewidth=2.5, label='Ridge Line')
+        ax.text(b*0.02, d/2 + d*0.03, "RIDGE LINE", color='purple', fontsize=9, fontweight='bold', ha='left')
+        
+        # Add slopes arrows
+        # Arrow pointing away from ridge (down slope)
+        if d > 2: # Only draw if enough space
+            ax.arrow(b/2, d/2 - d*0.1, 0, -d*0.1, head_width=b*0.02, head_length=d*0.02, fc='purple', ec='purple', alpha=0.5)
+            ax.arrow(b/2, d/2 + d*0.1, 0, d*0.1, head_width=b*0.02, head_length=d*0.02, fc='purple', ec='purple', alpha=0.5)
+
     ax.set_xlim(-b*0.5, b*1.5)
     ax.set_ylim(-d*0.3, d*1.5)
     ax.set_aspect('equal')
@@ -89,7 +112,6 @@ def plot_building_diagram(b, d):
 # ASCII ART LIBRARY
 # ==========================================
 def get_ascii_art(zone_code):
-    """Returns ASCII art string for a specific zone."""
     if zone_code == "RA1":
         return """
       +-----------------------------+
@@ -196,6 +218,7 @@ if st.button("🚀 Run Analysis for All Zones"):
     st.divider()
     st.header("📊 Analysis Report Summary")
     
+    # 1. Table
     st.subheader("1. Zone Analysis Summary")
     df_res = pd.DataFrame(results_list)
     st.dataframe(
@@ -226,7 +249,10 @@ if st.button("🚀 Run Analysis for All Zones"):
         st.pyplot(fig_fem)
         
     with col2:
-        st.subheader("3. Input Summary")
+        st.subheader("3. Input & Geometry")
+        # Pass roof_type to the diagram function
+        st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
+        st.markdown("---")
         st.write(f"- **V_des:** {v_des:.2f} m/s")
         st.write(f"- **Angle:** {roof_angle}° ({roof_type})")
         st.write(f"- **Direction:** {governing_case}")
@@ -240,7 +266,6 @@ if st.button("🚀 Run Analysis for All Zones"):
     
     table_str = df_res.to_string(index=False, justify="right", float_format=lambda x: "{:.3f}".format(x))
     
-    # Generate ASCII Art Block
     ascii_block = ""
     for z in zones:
         ascii_block += f"\n--- ZONE {z['code']} ({z['desc']}) ---"
@@ -297,7 +322,6 @@ if st.button("🚀 Run Analysis for All Zones"):
 
 [5] ZONE VISUALIZATION GUIDE (ASCII ART)
 ----------------------------------------
-   Below are visual representations of the roof zones referred to in Section [2].
 {ascii_block}
 ================================================================================
 Generated by Solar Rail App | Date: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
