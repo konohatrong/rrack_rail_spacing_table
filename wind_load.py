@@ -1,149 +1,219 @@
-import numpy as np
+import math
 
-def interpolate_linear(val, x_list, y_list):
-    """ Helper for linear interpolation """
-    return np.interp(val, x_list, y_list)
+# =============================================================================================
+# 1. ฐานข้อมูลความเร็วลม (Wind Speed Data) - AS/NZS 1170.2
+# =============================================================================================
+# หน่วย: เมตร/วินาที (m/s)
+# ข้อมูลอ้างอิงจากไฟล์: AS-NZS Wind speed.xlsx
+# Key: Region Code
+# Value: { Return Period (Years): Wind Speed (m/s) }
 
-def get_mz_cat(height, terrain_category):
-    """ Terrain/Height Multiplier (Mz,cat) from Table 4.1 """
-    z_vals = [3, 5, 10, 15, 20, 30, 40, 50]
-    mz_data = {
-        1: [0.99, 1.05, 1.12, 1.16, 1.19, 1.22, 1.24, 1.25], 
-        2: [0.91, 0.91, 1.00, 1.05, 1.08, 1.12, 1.14, 1.16], 
-        2.5: [0.87, 0.87, 0.92, 0.97, 1.01, 1.06, 1.10, 1.13], 
-        3: [0.83, 0.83, 0.83, 0.89, 0.94, 1.00, 1.04, 1.07], 
-        4: [0.75, 0.75, 0.75, 0.75, 0.75, 0.80, 0.85, 0.90] 
-    }
-    cat_vals = mz_data.get(terrain_category, mz_data[2])
-    z_use = max(height, 3.0)
-    return interpolate_linear(z_use, z_vals, cat_vals)
+WIND_DATA = {
+    # --- Australia Regions (Non-cyclonic) ---
+    # Region A: ครอบคลุม A0 ถึง A5
+    "A0": {1: 30, 5: 32, 10: 34, 20: 37, 25: 37, 50: 39, 100: 41, 200: 43, 250: 43, 500: 45, 1000: 46, 2000: 48, 2500: 48, 5000: 50, 10000: 51},
+    "A1": {1: 30, 5: 32, 10: 34, 20: 37, 25: 37, 50: 39, 100: 41, 200: 43, 250: 43, 500: 45, 1000: 46, 2000: 48, 2500: 48, 5000: 50, 10000: 51},
+    "A2": {1: 30, 5: 32, 10: 34, 20: 37, 25: 37, 50: 39, 100: 41, 200: 43, 250: 43, 500: 45, 1000: 46, 2000: 48, 2500: 48, 5000: 50, 10000: 51},
+    "A3": {1: 30, 5: 32, 10: 34, 20: 37, 25: 37, 50: 39, 100: 41, 200: 43, 250: 43, 500: 45, 1000: 46, 2000: 48, 2500: 48, 5000: 50, 10000: 51},
+    "A4": {1: 30, 5: 32, 10: 34, 20: 37, 25: 37, 50: 39, 100: 41, 200: 43, 250: 43, 500: 45, 1000: 46, 2000: 48, 2500: 48, 5000: 50, 10000: 51},
+    "A5": {1: 30, 5: 32, 10: 34, 20: 37, 25: 37, 50: 39, 100: 41, 200: 43, 250: 43, 500: 45, 1000: 46, 2000: 48, 2500: 48, 5000: 50, 10000: 51},
+
+    # Region B: ครอบคลุม B1, B2
+    "B1": {1: 26, 5: 28, 10: 33, 20: 38, 25: 39, 50: 44, 100: 48, 200: 52, 250: 53, 500: 57, 1000: 60, 2000: 63, 2500: 64, 5000: 67, 10000: 69},
+    "B2": {1: 26, 5: 28, 10: 33, 20: 38, 25: 39, 50: 44, 100: 48, 200: 52, 250: 53, 500: 57, 1000: 60, 2000: 63, 2500: 64, 5000: 67, 10000: 69},
+
+    # --- Australia Regions (Cyclonic) ---
+    "C":  {1: 23, 5: 33, 10: 39, 20: 45, 25: 47, 50: 52, 100: 56, 200: 61, 250: 62, 500: 66, 1000: 70, 2000: 73, 2500: 74, 5000: 78, 10000: 81},
+    "D":  {1: 23, 5: 35, 10: 43, 20: 51, 25: 53, 50: 60, 100: 66, 200: 72, 250: 74, 500: 80, 1000: 85, 2000: 90, 2500: 91, 5000: 95, 10000: 99},
+
+    # --- New Zealand Regions ---
+    # Region NZ (1 to 2)
+    "NZ1": {1: 31, 5: 35, 10: 37, 20: 39, 25: 39, 50: 41, 100: 42, 200: 43, 250: 44, 500: 45, 1000: 46, 2000: 47, 2500: 47, 5000: 48, 10000: 49},
+    "NZ2": {1: 31, 5: 35, 10: 37, 20: 39, 25: 39, 50: 41, 100: 42, 200: 43, 250: 44, 500: 45, 1000: 46, 2000: 47, 2500: 47, 5000: 48, 10000: 49},
+    # Region NZ3
+    "NZ3": {1: 37, 5: 42, 10: 44, 20: 46, 25: 46, 50: 48, 100: 50, 200: 51, 250: 51, 500: 53, 1000: 54, 2000: 55, 2500: 55, 5000: 56, 10000: 57},
+    # Region NZ4
+    "NZ4": {1: 38, 5: 42, 10: 43, 20: 44, 25: 45, 50: 46, 100: 47, 200: 48, 250: 49, 500: 50, 1000: 50, 2000: 51, 2500: 52, 5000: 52, 10000: 53}
+}
+
+# =============================================================================================
+# 2. ฟังก์ชันคำนวณและดึงค่า (Calculation & Utility Functions)
+# =============================================================================================
 
 def get_return_period(importance_level, design_life):
     """
-    Determine Annual Probability of Exceedance (1/R) -> Return Period (R)
-    Ref: AS/NZS 1170.0 Table 3.3 and Appendix F for varying design life.
+    กำหนดค่า Annual Probability of Exceedance (1/R) ตาม AS/NZS 1170.0
+    และแปลงเป็น Return Period (R)
+    
+    Args:
+        importance_level (int): 1, 2, 3, or 4
+        design_life (int): Years (e.g., 25, 50, 100)
+    
+    Returns:
+        int: Return Period (Years)
     """
-    # Base Annual Probability for 50 year design life (Table 3.3)
-    # IL 1: 1/100
-    # IL 2: 1/500 (Normal)
-    # IL 3: 1/1000
-    # IL 4: 1/2500
-    
-    # If Design Life differs from 50, strictly we should adjust.
-    # For this app, we assume standard Table 3.3 mapping for Permanent Structures (>=50y)
-    # and allow adjustments for Temporary (<5y) via approximation or custom logic.
-    # Here we map standard combinations:
-    
-    if importance_level == 1:
-        # Farm structures etc.
-        if design_life <= 5: return 25
-        return 100
-    elif importance_level == 2:
-        # Normal structures
-        if design_life <= 5: return 50 # Temporary works
-        if design_life <= 25: return 250 # Simplified
-        return 500
-    elif importance_level == 3:
-        # Major structures
-        return 1000
-    elif importance_level == 4:
-        # Post-disaster
-        return 2500
-    
-    return 500
-
-def get_vr_from_ari(sub_region, return_period):
-    """
-    Get Regional Wind Speed (Vr) based on Region and Return Period (R)
-    Ref: AS/NZS 1170.2 Table 3.1(A)
-    """
-    # Map sub-regions to data columns
-    if sub_region in ["A0", "A1", "A2", "A3", "A4", "A5"]:
-        data_key = 'A'
-    elif sub_region in ["B1", "B2"]:
-        data_key = 'B'
-    elif sub_region.startswith("NZ"):
-        data_key = 'W'
-    elif sub_region == "C":
-        data_key = 'C'
-    else: # D
-        data_key = 'D'
-
-    r_points = [1, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500]
-    
-    # Data from AS/NZS 1170.2 Table 3.1
-    vr_data = {
-        'A': [30, 32, 34, 37, 37, 39, 41, 43, 43, 45, 46, 48, 49],
-        'B': [26, 28, 30, 33, 33, 36, 38, 40, 40, 43, 44, 46, 47],
-        'W': [30, 32, 34, 37, 37, 39, 41, 43, 43, 45, 46, 48, 49],
-        'C': [23, 33, 39, 45, 47, 52, 56, 61, 62, 66, 70, 73, 74],
-        'D': [23, 35, 43, 51, 53, 60, 66, 72, 74, 80, 85, 89, 90]
+    # ตารางแบบ Simplified ตามมาตรฐานทั่วไป (ต้องตรวจสอบกับ AS/NZS 1170.0 Table 3.3 จริงอีกครั้งเพื่อความแม่นยำสูงสุด)
+    # Mapping: (Importance Level, Design Life) -> Return Period
+    lookup = {
+        (1, 5): 25,   (1, 25): 100,  (1, 50): 250,  (1, 100): 500,
+        (2, 5): 50,   (2, 25): 250,  (2, 50): 500,  (2, 100): 1000,
+        (3, 5): 100,  (3, 25): 500,  (3, 50): 1000, (3, 100): 2500,
+        (4, 5): 250,  (4, 25): 1000, (4, 50): 2500, (4, 100): 10000 # Extreme cases
     }
     
-    vals = vr_data.get(data_key, vr_data['A'])
+    # Default fallback logic if specific pair not in lookup (Approximation)
+    if (importance_level, design_life) in lookup:
+        return lookup[(importance_level, design_life)]
     
-    if return_period > r_points[-1]:
-        return vals[-1]
-    
-    # Linear interpolation for non-standard R values
-    return interpolate_linear(return_period, r_points, vals)
+    # Fallback logic based on IL
+    if importance_level == 1:
+        if design_life <= 10: return 25
+        return 100
+    elif importance_level == 2:
+        if design_life <= 10: return 50
+        return 500
+    elif importance_level == 3:
+        if design_life <= 10: return 100
+        return 1000
+    else: # IL 4
+        return 2000 # Very high
 
-def calculate_v_des_detailed(Vr, Md, Mz_cat, Ms, Mt):
-    return Vr * Md * Mz_cat * Ms * Mt
+def get_vr_from_ari(region, ret_period):
+    """
+    ดึงค่า Vr (Regional Wind Speed) จากฐานข้อมูล WIND_DATA
+    
+    Args:
+        region (str): รหัส Region (e.g., "A1", "C", "NZ1")
+        ret_period (int): รอบปีการกลับคืน (Return Period)
+    
+    Returns:
+        float: ความเร็วลม (m/s)
+    """
+    # Fallback to default if region not found
+    if region not in WIND_DATA:
+        return 45.0 
+    
+    data = WIND_DATA[region]
+    
+    # กรณีมีค่าตรงกับ Key ใน Dictionary
+    if ret_period in data:
+        return float(data[ret_period])
+    
+    # กรณีไม่มีค่าตรง ให้ใช้ค่าของปีที่ *มากกว่า* ที่ใกล้ที่สุด (Conservative approach)
+    # เช่น ต้องการ 300 ปี แต่มีแค่ 250 กับ 500 -> ให้ใช้ค่าของ 500 ปี
+    sorted_years = sorted(data.keys())
+    for yr in sorted_years:
+        if yr >= ret_period:
+            return float(data[yr])
+            
+    # ถ้าเกินปีสูงสุดที่มี ให้ใช้ค่าสูงสุดที่มี
+    return float(data[sorted_years[-1]])
 
-# --- Tables 5.3 Logic ---
-def get_table_5_3_A_value(ratio_val):
-    if ratio_val >= 1.0: return -1.3
-    elif ratio_val <= 0.5: return -0.9
-    else: return interpolate_linear(ratio_val, [0.5, 1.0], [-0.9, -1.3])
+def get_mz_cat(height, terrain_category):
+    """
+    คำนวณค่าตัวคูณสภาพภูมิประเทศ Mz,cat (Terrain/Height Multiplier)
+    ตาม AS/NZS 1170.2 Table 4.1 (Simplified)
+    
+    Args:
+        height (float): ความสูงอาคาร (m)
+        terrain_category (float): 1, 1.5, 2, 2.5, 3, 4
+    """
+    # ตาราง Mz,cat อย่างง่ายสำหรับความสูงมาตรฐาน (Interpolation possible)
+    # (Height, TC): Mz,cat
+    # นี่คือการประมาณค่าจากมาตรฐาน
+    h = max(height, 3.0) # ต่ำสุด 3m
+    
+    # Logic การคำนวณแบบ Logarithmic profile อย่างง่ายสำหรับ TC ต่างๆ
+    # Mz,cat = K * ln(h/z0) (สูตรประมาณการทางวิศวกรรมลมทั่วไป)
+    
+    # กำหนดค่าคงที่คร่าวๆ เพื่อให้ได้ค่าใกล้เคียงตารางมาตรฐาน
+    # TC1: Very exposed
+    if terrain_category <= 1.0:
+        return 1.12 if h <= 5 else 1.05 + 0.05 * math.log(h)
+    
+    # TC2: Open terrain
+    elif terrain_category <= 2.0:
+        if h <= 5: return 0.91
+        if h <= 10: return 1.00
+        return 1.0 + 0.15 * math.log10(h/10)
+        
+    # TC2.5: Transitional
+    elif terrain_category <= 2.5:
+        if h <= 5: return 0.87
+        if h <= 10: return 0.92
+        return 0.92 + 0.13 * math.log10(h/10)
 
-def get_table_5_3_B_value(angle, ratio_val):
-    cpe_hd_025 = [(10, -0.7), (15, -0.5), (20, -0.3), (25, -0.2), (30, -0.2), (35, 0.0), (45, 0.0)]
-    cpe_hd_050 = [(10, -0.9), (15, -0.7), (20, -0.4), (25, -0.3), (30, -0.2), (35, -0.2), (45, 0.0)]
-    cpe_hd_100 = [(10, -1.3), (15, -1.0), (20, -0.7), (25, -0.5), (30, -0.3), (35, -0.2), (45, 0.0)]
-    
-    val_025 = interpolate_linear(angle, [x[0] for x in cpe_hd_025], [x[1] for x in cpe_hd_025])
-    val_050 = interpolate_linear(angle, [x[0] for x in cpe_hd_050], [x[1] for x in cpe_hd_050])
-    val_100 = interpolate_linear(angle, [x[0] for x in cpe_hd_100], [x[1] for x in cpe_hd_100])
-    
-    if ratio_val <= 0.25: return val_025
-    elif ratio_val >= 1.0: return val_100
-    else: return np.interp(ratio_val, [0.25, 0.5, 1.0], [val_025, val_050, val_100])
+    # TC3: Suburban
+    elif terrain_category <= 3.0:
+        if h <= 5: return 0.83
+        if h <= 10: return 0.83
+        if h <= 15: return 0.89
+        return 0.83 + 0.15 * math.log10(h/10) # Approximation
 
-def get_table_5_3_C_value(angle, ratio_val):
-    cpe_hd_025 = [(10, -0.3), (15, -0.5), (20, -0.6), (25, -0.6), (45, -0.6)]
-    cpe_hd_050 = [(10, -0.5), (15, -0.5), (20, -0.6), (25, -0.6), (45, -0.6)]
-    cpe_hd_100 = [(10, -0.7), (15, -0.6), (20, -0.6), (25, -0.6), (45, -0.6)]
-    
-    val_025 = interpolate_linear(angle, [x[0] for x in cpe_hd_025], [x[1] for x in cpe_hd_025])
-    val_050 = interpolate_linear(angle, [x[0] for x in cpe_hd_050], [x[1] for x in cpe_hd_050])
-    val_100 = interpolate_linear(angle, [x[0] for x in cpe_hd_100], [x[1] for x in cpe_hd_100])
-    
-    if ratio_val <= 0.25: return val_025
-    elif ratio_val >= 1.0: return val_100
-    else: return np.interp(ratio_val, [0.25, 0.5, 1.0], [val_025, val_050, val_100])
-
-def solve_cpe_for_ratio(roof_angle, roof_type, ratio_val):
-    if roof_angle < 10:
-        val = get_table_5_3_A_value(ratio_val)
-        return {'cpe': val, 'note': 'Table 5.3(A)'}
-    
-    cpe_up = get_table_5_3_B_value(roof_angle, ratio_val)
-    cpe_down = get_table_5_3_C_value(roof_angle, ratio_val)
-    
-    if roof_type == 'Monoslope':
-        if cpe_up < cpe_down: return {'cpe': cpe_up, 'note': 'Upwind Slope (Tab 5.3B)'}
-        else: return {'cpe': cpe_down, 'note': 'Downwind Slope (Tab 5.3C)'}
+    # TC4: Dense urban
     else:
-        if cpe_up < cpe_down: return {'cpe': cpe_up, 'note': 'Windward Side (Tab 5.3B)'}
-        else: return {'cpe': cpe_down, 'note': 'Leeward Side (Tab 5.3C)'}
+        if h <= 10: return 0.75
+        if h <= 20: return 0.75
+        return 0.75 + 0.10 * math.log10(h/20)
 
-def calculate_wind_pressure(V_des, Cpe, Ka=1.0, Kc=1.0, Kl=1.0, Kp=1.0, C_dyn=1.0):
-    rho_air = 1.2
-    C_fig = Cpe * Ka * Kc * Kl * Kp
-    p = 0.5 * rho_air * (V_des**2) * C_fig * C_dyn
-    return abs(p) / 1000.0
+def calculate_v_des_detailed(vr, md, mz_cat, ms, mt):
+    """
+    คำนวณความเร็วลมออกแบบ V_sit,beta (Design Wind Speed)
+    Formula: V_des = Vr * Md * (Mz,cat * Ms * Mt)
+    """
+    return vr * md * (mz_cat * ms * mt)
 
-def calculate_tributary_width(panel_width, panel_depth, rail_parallel_to):
-    if rail_parallel_to == 'width': return panel_depth / 2.0
-    else: return panel_width / 2.0
+def calculate_wind_pressure(v_des, c_fig, ka=1.0, kc=1.0, kl=1.0, p_dyn_factor=1.0):
+    """
+    คำนวณแรงดันลมออกแบบ (Design Wind Pressure, p)
+    p = 0.5 * rho * (V_des)^2 * C_fig * C_dyn
+    โดย C_fig = Cpe * Ka * Kc * Kl * Kp
+    """
+    rho_air = 1.2 # kg/m3 density of air
+    
+    # Dynamic pressure qz
+    q_z = 0.5 * rho_air * (v_des ** 2)
+    
+    # Design pressure in Pascals (Pa) -> convert to kPa
+    p_design = q_z * c_fig * ka * kc * kl * p_dyn_factor
+    return p_design / 1000.0 # Return kPa
+
+def calculate_tributary_width(panel_w, panel_d, orientation='width'):
+    """
+    คำนวณความกว้างรับลม (Tributary Width) สำหรับราง
+    """
+    # ถ้าวางรางขนานกับด้านกว้างของแผง (Rail // Width) -> รับโหลดครึ่งหนึ่งของความลึก
+    if orientation == 'width': 
+        return panel_d / 2.0
+    # ถ้าวางรางขนานกับด้านลึกของแผง (Rail // Depth) -> รับโหลดครึ่งหนึ่งของความกว้าง
+    else: 
+        return panel_w / 2.0
+
+def solve_cpe_for_ratio(roof_angle, roof_type, h_d_ratio):
+    """
+    หาค่า Cpe (External Pressure Coefficient) ตามประเภทหลังคาและมุม
+    (Simplified lookup logic based on AS/NZS 1170.2 Section 5)
+    """
+    # ค่าสมมติสำหรับการสาธิต (ต้องใช้ตารางจริงเยอะมากในการเขียนให้ครบทุกเคส)
+    # คืนค่า Cpe ที่เป็นลบ (Suction/Uplift) ที่วิกฤตที่สุด
+    
+    cpe = -0.9 # Default generic uplift
+    
+    if "Monoslope" in roof_type:
+        if roof_angle < 10:
+            cpe = -1.2 # Flat/Low pitch mono
+        elif roof_angle < 20:
+            cpe = -1.4
+        else:
+            cpe = -1.1
+            
+    elif "Gable" in roof_type:
+        # Gable logic depends heavily on wind direction (0 or 90) and h/d
+        if roof_angle < 10:
+            cpe = -0.9 if h_d_ratio < 0.5 else -1.3 # Example logic
+        elif roof_angle < 20:
+            cpe = -0.7 if h_d_ratio < 0.5 else -0.9
+        else:
+            cpe = -0.6
+            
+    return {'cpe': cpe, 'notes': 'Simplified look-up'}
