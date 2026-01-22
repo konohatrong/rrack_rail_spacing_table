@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import pandas as pd
-import datetime  # Import datetime to fix NameError
+import datetime  # Import datetime
 
 # Set page configuration
 st.set_page_config(page_title="Solar Rail Design (AS/NZS 1170.2)", layout="wide")
@@ -57,11 +57,7 @@ engineer_name = st.sidebar.text_input("Engineer Name", "-")
 st.sidebar.markdown("---")
 
 st.sidebar.header("1. Wind Parameters")
-# --- FIXED: ADDED NZ REGIONS HERE ---
-region = st.sidebar.selectbox("Wind Region", 
-    ["A0", "A1", "A2", "A3", "A4", "A5", "B1", "B2", "C", "D", "NZ1", "NZ2", "NZ3", "NZ4"], 
-    index=1
-)
+region = st.sidebar.selectbox("Wind Region", ["A0", "A1", "A2", "A3", "A4", "A5", "B1", "B2", "C", "D", "NZ1", "NZ2", "NZ3", "NZ4"], index=1)
 imp_level = st.sidebar.selectbox("Importance Level (IL)", [1, 2, 3, 4], index=1)
 design_life = st.sidebar.selectbox("Design Life (Years)", [5, 25, 50, 100], index=2)
 
@@ -179,7 +175,9 @@ if st.button("🚀 Run Analysis"):
     zones = [{"code": "RA1", "desc": "General", "kl": 1.0}, {"code": "RA2", "desc": "Edges", "kl": 1.5}, 
              {"code": "RA3", "desc": "Corners", "kl": 2.0}, {"code": "RA4", "desc": "High Suction", "kl": 3.0}]
     
-    results, worst_res, max_p = [], None, -1.0
+    results = []
+    worst_res = None
+    max_mag_p = 0.0  # Track maximum magnitude (absolute value) for worst case
     
     for z in zones:
         p_z = wind_load.calculate_wind_pressure(v_des, base_cpe, ka, kc, z['kl'])
@@ -196,13 +194,24 @@ if st.button("🚀 Run Analysis"):
             "Pressure (kPa)": p_z, "Line Load (kN/m)": w_z, "Max Span (m)": span,
             "Reaction (kN)": np.max(rxn), "M* (kNm)": mom, "history": history
         })
-        if p_z > max_p:
-            max_p = p_z
+        
+        # --- FIXED LOGIC: Compare ABSOLUTE value to find worst load (Suction is negative) ---
+        if abs(p_z) > max_mag_p:
+            max_mag_p = abs(p_z)
             worst_res = {
                 'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
                 'load': w_z, 'moment': mom, 'shear_max': shr, 
-                'reaction': np.max(rxn), 'rxn_edge': rxn_edge, 'rxn_int': rxn_int
+                'reaction': np.max(rxn), 
+                'rxn_edge': rxn_edge, 'rxn_int': rxn_int
             }
+
+    # Safety: If worst_res is still None (unlikely with abs comparison), default to first result
+    if worst_res is None and results:
+        # Fallback to the last calculated result if somehow comparison failed
+        r = results[-1] 
+        # Note: We need fem/details which are in the loop. 
+        # Ideally max_mag_p starting at 0.0 covers all non-zero loads.
+        pass 
 
     st.session_state['results'] = results
     st.session_state['worst_res'] = worst_res
@@ -219,109 +228,124 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     w_dat = st.session_state['wind_data']
     s_dat = st.session_state['struct_data']
 
-    st.divider(); st.header("📊 Analysis Report Summary")
-    
-    # 1. Verification
-    st.subheader("1. Detailed Input Verification")
-    st.markdown('<div class="calculation-box">', unsafe_allow_html=True)
-    st.markdown(f"**Design Wind Speed ($V_{{des}}$): {v_des:.2f} m/s**")
-    st.markdown(f"- Formula: $V_R \cdot M_d \cdot (M_{{z,cat}} \cdot M_s \cdot M_t)$")
-    st.markdown(f"- Subst: {vr} * {md} * ({mz_cat:.2f} * {ms} * {mt})")
-    st.markdown('</div>', unsafe_allow_html=True)
-    c1, c2 = st.columns([1, 1])
-    with c1: st.write(f"**Rail:** {rail_brand}"); st.write(f"**Mn:** {s_dat['Mn']:.3f} kNm")
-    with c2: st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
-
-    # 2. Wind
-    st.divider(); st.subheader("2. Wind Analysis ($C_{p,e}$ Selection)")
-    st.markdown('<div class="info-box">', unsafe_allow_html=True)
-    st.markdown("#### External Pressure Coefficient ($C_{p,e}$)")
-    w1, w2 = st.columns(2)
-    with w1:
-        st.write("**Case 1: Wind 0° (Normal)**")
-        st.write(f"- h/d Ratio: {b_height}/{b_depth} = **{w_dat['r0']:.2f}**")
-        st.write(f"- Cpe: **{w_dat['res0']['cpe']:.2f}**")
-    with w2:
-        st.write("**Case 2: Wind 90° (Parallel)**")
-        st.write(f"- h/b Ratio: {b_height}/{b_width} = **{w_dat['r90']:.2f}**")
-        st.write(f"- Cpe: **{w_dat['res90']['cpe']:.2f}**")
+    if w_res is None:
+        st.error("Error: Could not determine critical case. Please check inputs.")
+    else:
+        st.divider(); st.header("📊 Analysis Report Summary")
         
-    st.warning(f"**Selected Governing Case:** {w_dat['gov_case']}")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    c_trib1, c_trib2 = st.columns([1, 1])
-    with c_trib1:
-        st.markdown("#### Load Parameters")
-        st.write(f"- **Tributary Width:** {w_dat['trib_width']:.3f} m")
-        st.write(f"- **Ka (Area Red.):** {ka}")
-        st.write(f"- **Kc (Comb.):** {kc}")
-    with c_trib2:
-        st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
-
-    # 3. Table
-    st.divider(); st.subheader("3. Zone Analysis Summary")
-    df_res = pd.DataFrame(res_list)
-    df_disp = df_res.drop(columns=['history'], errors='ignore')
-    
-    st.dataframe(
-        df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]]
-        .style.format({
-            "Pressure (kPa)": "{:.3f}",
-            "Line Load (kN/m)": "{:.3f}",
-            "Max Span (m)": "{:.2f}",
-            "M* (kNm)": "{:.3f}",
-            "Reaction (kN)": "{:.2f}"
-        }),
-        use_container_width=True
-    )
-
-    # 4. Critical
-    st.divider(); st.subheader(f"4. Critical Case Analysis ({w_res['zone']})")
-    
-    col_crit1, col_crit2 = st.columns([1, 2])
-    with col_crit1:
-        st.markdown("### Design Values")
-        st.metric("Max Span", f"{w_res['span']:.2f} m")
-        st.metric("Design Moment (M*)", f"{w_res['moment']:.3f} kNm")
+        # 1. Verification
+        st.subheader("1. Detailed Input Verification")
+        st.markdown('<div class="calculation-box">', unsafe_allow_html=True)
+        st.markdown(f"**Design Wind Speed ($V_{{des}}$): {v_des:.2f} m/s**")
+        st.markdown(f"- Formula: $V_R \cdot M_d \cdot (M_{{z,cat}} \cdot M_s \cdot M_t)$")
+        st.markdown(f"- Subst: {vr} * {md} * ({mz_cat:.2f} * {ms} * {mt})")
+        st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown("---")
-        st.markdown("### Reaction Forces")
-        st.metric("Max End Reaction (Edge)", f"{w_res['rxn_edge']:.3f} kN")
-        st.metric("Max Int. Reaction (Mid)", f"{w_res['rxn_int']:.3f} kN")
+        c_geo1, c_geo2 = st.columns([1, 1])
+        with c_geo1:
+            st.markdown("#### Geometry & Capacity")
+            st.write(f"- **Rail Model:** {rail_brand} ({rail_model})")
+            st.write(f"- **Capacity (Mn):** {s_dat['Mn']:.3f} kNm")
+            st.write(f"- **Building:** {b_width}x{b_depth}x{b_height}m")
+            st.write(f"- **Roof:** {roof_type} @ {roof_angle}°")
+        with c_geo2:
+            st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
+
+        st.divider()
+
+        # 2. Wind
+        st.subheader("2. Wind Analysis ($C_{p,e}$ Selection)")
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        st.markdown("#### External Pressure Coefficient ($C_{p,e}$)")
+        w1, w2 = st.columns(2)
+        with w1:
+            st.write("**Case 1: Wind 0° (Normal)**")
+            st.write(f"- h/d Ratio: {b_height}/{b_depth} = **{w_dat['r0']:.2f}**")
+            st.write(f"- Cpe: **{w_dat['res0']['cpe']:.2f}**")
+        with w2:
+            st.write("**Case 2: Wind 90° (Parallel)**")
+            st.write(f"- h/b Ratio: {b_height}/{b_width} = **{w_dat['r90']:.2f}**")
+            st.write(f"- Cpe: **{w_dat['res90']['cpe']:.2f}**")
+            
+        st.warning(f"**Selected Governing Case:** {w_dat['gov_case']}")
+        st.markdown('</div>', unsafe_allow_html=True)
         
-    with col_crit2:
-        st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
+        c_trib1, c_trib2 = st.columns([1, 1])
+        with c_trib1:
+            st.markdown("#### Load Parameters")
+            st.write(f"- **Tributary Width:** {w_dat['trib_width']:.3f} m")
+            st.write(f"- **Ka (Area Red.):** {ka}")
+            st.write(f"- **Kc (Comb.):** {kc}")
+        with c_trib2:
+            st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
-    # REPORT GENERATION
-    st.divider(); st.header("📄 Plain Text & PDF Report")
-    
-    inp_d = {
-        'project_name': project_name, 'project_location': project_loc, 'engineer': engineer_name,
-        'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
-        'ret_period': ret_period, 'vr': vr, 'v_des': v_des, 'md': md, 'ms': ms, 'mt': mt, 'mz_cat': mz_cat, 'tc': tc,
-        'b_width': b_width, 'b_depth': b_depth, 'b_height': b_height, 'roof_type': roof_type, 'roof_angle': roof_angle,
-        'panel_w': panel_w, 'panel_d': panel_d, 'num_spans': num_spans
-    }
-    w_d = {
-        'cpe_0': w_dat['res0']['cpe'], 'ratio_0': w_dat['r0'], 'cpe_90': w_dat['res90']['cpe'], 'ratio_90': w_dat['r90'],
-        'governing_case': w_dat['gov_case'], 'note': w_dat['note'], 'trib_width': w_dat['trib_width'], 'ka': ka, 'kc': kc, 'cpe_base': w_dat['base_cpe']
-    }
-    
-    rep_text = report.generate_full_report(inp_d, w_d, s_dat, res_list, w_res)
-    
-    # FILENAME GENERATION
-    clean_proj_name = project_name.strip().replace(" ", "_") if project_name else "Solar_Project"
-    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-    fname = f"{clean_proj_name}_Report_{date_str}"
+        # 3. Table
+        st.divider(); st.subheader("3. Zone Analysis Summary")
+        df_res = pd.DataFrame(res_list)
+        df_disp = df_res.drop(columns=['history'], errors='ignore')
+        
+        st.dataframe(
+            df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]]
+            .style.format({
+                "Pressure (kPa)": "{:.3f}",
+                "Line Load (kN/m)": "{:.3f}",
+                "Max Span (m)": "{:.2f}",
+                "M* (kNm)": "{:.3f}",
+                "Reaction (kN)": "{:.2f}"
+            }),
+            use_container_width=True
+        )
 
-    col_d1, col_d2 = st.columns(2)
-    with col_d1:
-        st.download_button("💾 Download Text Report", rep_text, f"{fname}.txt")
-    with col_d2:
-        try:
-            pdf_bytes = report.create_pdf_report(rep_text)
-            st.download_button("💾 Download PDF Report", pdf_bytes, f"{fname}.pdf", mime="application/pdf")
-        except Exception as e:
-            st.error(f"PDF Gen Error: {e} (Require fpdf2)")
+        # 4. Critical
+        st.divider(); st.subheader(f"4. Critical Case Analysis ({w_res['zone']})")
+        
+        # --- FIXED VARIABLE NAME ---
+        c1, c2 = st.columns([1, 2])
+        with c1: 
+            st.markdown("### Design Values")
+            st.metric("Max Span", f"{w_res['span']:.2f} m")
+            st.metric("Design Moment (M*)", f"{w_res['moment']:.3f} kNm")
+            
+            st.markdown("---")
+            st.markdown("### Reaction Forces")
+            st.metric("Max End Reaction (Edge)", f"{w_res['rxn_edge']:.3f} kN")
+            st.metric("Max Int. Reaction (Mid)", f"{w_res['rxn_int']:.3f} kN")
+            
+        with c2: st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
 
-    st.code(rep_text, language='text')
+        # REPORT GENERATION
+        st.divider(); st.header("📄 Plain Text & PDF Report")
+        
+        inp_d = {
+            'project_name': project_name, 'project_location': project_loc, 'engineer': engineer_name,
+            'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
+            'ret_period': ret_period, 'vr': vr, 'v_des': v_des, 'md': md, 'ms': ms, 'mt': mt, 'mz_cat': mz_cat, 'tc': tc,
+            'b_width': b_width, 'b_depth': b_depth, 'b_height': b_height, 'roof_type': roof_type, 'roof_angle': roof_angle,
+            'panel_w': panel_w, 'panel_d': panel_d, 'num_spans': num_spans
+        }
+        w_d = {
+            'cpe_0': w_dat['res0']['cpe'], 'ratio_0': w_dat['r0'], 'cpe_90': w_dat['res90']['cpe'], 'ratio_90': w_dat['r90'],
+            'governing_case': w_dat['gov_case'], 'note': w_dat['note'], 'trib_width': w_dat['trib_width'], 'ka': ka, 'kc': kc, 'cpe_base': w_dat['base_cpe']
+        }
+        
+        rep_text = report.generate_full_report(inp_d, w_d, s_dat, res_list, w_res)
+        
+        # --- DYNAMIC FILENAME GENERATION ---
+        # 1. Clean Project Name (Replace spaces with _)
+        clean_proj_name = project_name.strip().replace(" ", "_") if project_name else "Solar_Project"
+        # 2. Get Current Date
+        date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        # 3. Combine
+        fname = f"{clean_proj_name}_Report_{date_str}"
+
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            st.download_button("💾 Download Text Report", rep_text, f"{fname}.txt")
+        with col_d2:
+            try:
+                pdf_bytes = report.create_pdf_report(rep_text)
+                st.download_button("💾 Download PDF Report", pdf_bytes, f"{fname}.pdf", mime="application/pdf")
+            except Exception as e:
+                st.error(f"PDF Gen Error: {e} (Require fpdf2)")
+
+        st.code(rep_text, language='text')
