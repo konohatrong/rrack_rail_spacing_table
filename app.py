@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import pandas as pd
-import datetime  # Import datetime
+import datetime  # Import datetime แก้ NameError
 
 # Set page configuration
 st.set_page_config(page_title="Solar Rail Design (AS/NZS 1170.2)", layout="wide")
@@ -57,7 +57,11 @@ engineer_name = st.sidebar.text_input("Engineer Name", "-")
 st.sidebar.markdown("---")
 
 st.sidebar.header("1. Wind Parameters")
-region = st.sidebar.selectbox("Wind Region", ["A0", "A1", "A2", "A3", "A4", "A5", "B1", "B2", "C", "D", "NZ1", "NZ2", "NZ3", "NZ4"], index=1)
+# เพิ่ม NZ1-NZ4 ให้เลือก
+region = st.sidebar.selectbox("Wind Region", 
+    ["A0", "A1", "A2", "A3", "A4", "A5", "B1", "B2", "C", "D", "NZ1", "NZ2", "NZ3", "NZ4"], 
+    index=1
+)
 imp_level = st.sidebar.selectbox("Importance Level (IL)", [1, 2, 3, 4], index=1)
 design_life = st.sidebar.selectbox("Design Life (Years)", [5, 25, 50, 100], index=2)
 
@@ -177,7 +181,7 @@ if st.button("🚀 Run Analysis"):
     
     results = []
     worst_res = None
-    max_mag_p = 0.0  # Track maximum magnitude (absolute value) for worst case
+    max_mag_p = -1.0 # Initialize with negative so first loop always sets worst_res
     
     for z in zones:
         p_z = wind_load.calculate_wind_pressure(v_des, base_cpe, ka, kc, z['kl'])
@@ -195,23 +199,16 @@ if st.button("🚀 Run Analysis"):
             "Reaction (kN)": np.max(rxn), "M* (kNm)": mom, "history": history
         })
         
-        # --- FIXED LOGIC: Compare ABSOLUTE value to find worst load (Suction is negative) ---
-        if abs(p_z) > max_mag_p:
-            max_mag_p = abs(p_z)
+        # --- FIXED ROBUST LOGIC: Always set if None, otherwise compare Magnitude ---
+        current_mag = abs(p_z)
+        if worst_res is None or current_mag > max_mag_p:
+            max_mag_p = current_mag
             worst_res = {
                 'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
                 'load': w_z, 'moment': mom, 'shear_max': shr, 
-                'reaction': np.max(rxn), 
+                'reaction': np.max(rxn),  # Key 'reaction' added
                 'rxn_edge': rxn_edge, 'rxn_int': rxn_int
             }
-
-    # Safety: If worst_res is still None (unlikely with abs comparison), default to first result
-    if worst_res is None and results:
-        # Fallback to the last calculated result if somehow comparison failed
-        r = results[-1] 
-        # Note: We need fem/details which are in the loop. 
-        # Ideally max_mag_p starting at 0.0 covers all non-zero loads.
-        pass 
 
     st.session_state['results'] = results
     st.session_state['worst_res'] = worst_res
@@ -228,6 +225,7 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     w_dat = st.session_state['wind_data']
     s_dat = st.session_state['struct_data']
 
+    # --- SAFETY CHECK ---
     if w_res is None:
         st.error("Error: Could not determine critical case. Please check inputs.")
     else:
@@ -299,9 +297,8 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
         # 4. Critical
         st.divider(); st.subheader(f"4. Critical Case Analysis ({w_res['zone']})")
         
-        # --- FIXED VARIABLE NAME ---
-        c1, c2 = st.columns([1, 2])
-        with c1: 
+        col_crit1, col_crit2 = st.columns([1, 2])
+        with col_crit1:
             st.markdown("### Design Values")
             st.metric("Max Span", f"{w_res['span']:.2f} m")
             st.metric("Design Moment (M*)", f"{w_res['moment']:.3f} kNm")
@@ -311,11 +308,11 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
             st.metric("Max End Reaction (Edge)", f"{w_res['rxn_edge']:.3f} kN")
             st.metric("Max Int. Reaction (Mid)", f"{w_res['rxn_int']:.3f} kN")
             
-        with c2: st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
+        with col_crit2:
+            st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
 
         # REPORT GENERATION
         st.divider(); st.header("📄 Plain Text & PDF Report")
-        
         inp_d = {
             'project_name': project_name, 'project_location': project_loc, 'engineer': engineer_name,
             'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
@@ -330,12 +327,9 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
         
         rep_text = report.generate_full_report(inp_d, w_d, s_dat, res_list, w_res)
         
-        # --- DYNAMIC FILENAME GENERATION ---
-        # 1. Clean Project Name (Replace spaces with _)
+        # FILENAME GENERATION
         clean_proj_name = project_name.strip().replace(" ", "_") if project_name else "Solar_Project"
-        # 2. Get Current Date
         date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-        # 3. Combine
         fname = f"{clean_proj_name}_Report_{date_str}"
 
         col_d1, col_d2 = st.columns(2)
