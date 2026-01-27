@@ -10,9 +10,7 @@ def calculate_Mn(breaking_load_kn, test_span_m, safety_factor=1.0):
 
 def solve_continuous_beam_exact(span_length, num_spans, w_load):
     """
-    Engine: Solves Indeterminate Continuous Beam using Matrix Method (System of Linear Equations).
-    Method: Clapeyron's Three-Moment Theorem for equal spans.
-    
+    Engine: Solves Indeterminate Continuous Beam using Matrix Method.
     Returns exact arrays for x, shear(V), moment(M), and reactions(R).
     """
     L = span_length
@@ -67,20 +65,23 @@ def solve_continuous_beam_exact(span_length, num_spans, w_load):
         shear_plot.extend(v_local)
         moment_plot.extend(m_local)
 
-    # Convert to numpy arrays for max calculation
     m_arr = np.array(moment_plot)
     v_arr = np.array(shear_plot)
 
+    # --- FIX IS HERE: Use Absolute Value for Max Reaction Calculation ---
+    # ถ้าไม่ใช้ abs() ค่าที่เป็นลบ (Uplift) จะมีค่าน้อยกว่า Capacity (ที่เป็นบวก) เสมอ ทำให้ Logic ผิด
+    max_reaction_magnitude = np.max(np.abs(R))
+
     return {
-        'max_moment': np.max(np.abs(m_arr)), # Absolute max moment
-        'max_shear': np.max(np.abs(v_arr)),  # Absolute max shear (ADDED THIS)
+        'max_moment': np.max(np.abs(m_arr)), 
+        'max_shear': np.max(np.abs(v_arr)),  
         'moment_array': m_arr,
         'shear_array': v_arr,
         'x_array': np.array(x_plot),
         'reactions': R,
-        'rxn_edge': R[0],
-        'rxn_internal': np.max(R[1:-1]) if len(R) > 2 else (R[0] if len(R)==2 else 0),
-        'rxn_max': np.max(R)
+        'rxn_edge': np.abs(R[0]), # Send absolute value for display
+        'rxn_internal': np.max(np.abs(R[1:-1])) if len(R) > 2 else (np.abs(R[0]) if len(R)==2 else 0),
+        'rxn_max': max_reaction_magnitude # This is the critical fix
     }
 
 def optimize_span(Mn, w_load, num_spans, max_span=4.0, clamp_capacity=None):
@@ -96,13 +97,15 @@ def optimize_span(Mn, w_load, num_spans, max_span=4.0, clamp_capacity=None):
     valid_span = 0.5
     final_fem = None
     
-    limit_reached = False
+    # Initialize first step to prevent crash if loop breaks immediately
+    # Run analysis at min span
+    final_fem = solve_continuous_beam_exact(current_span, num_spans, w_load)
     
     while current_span <= max_span:
         fem = solve_continuous_beam_exact(current_span, num_spans, w_load)
         
         m_star = fem['max_moment']
-        r_star = fem['rxn_max']
+        r_star = fem['rxn_max'] # Now this is Magnitude (Positive)
         
         # Check 1: Rail
         rail_util = (m_star / Mn) * 100
@@ -138,13 +141,9 @@ def optimize_span(Mn, w_load, num_spans, max_span=4.0, clamp_capacity=None):
             valid_span = current_span
             final_fem = fem
         else:
-            limit_reached = True
+            # Limit reached, stop increasing span
             break
             
         current_span += step
-        
-    if final_fem is None:
-        final_fem = solve_continuous_beam_exact(0.5, num_spans, w_load)
-        valid_span = 0.5
 
     return valid_span, final_fem, history
