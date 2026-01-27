@@ -105,7 +105,6 @@ test_span = st.sidebar.number_input("Test Span (m)", def_sp, disabled=dis)
 safety_factor = st.sidebar.number_input("Safety Factor", value=1.1, min_value=0.001, step=0.01, format="%.3f")
 
 st.sidebar.markdown("---")
-# --- CLAMP CAPACITY ---
 st.sidebar.markdown("**Fixing/Clamp Capacity (Limit State)**")
 clamp_cap = st.sidebar.number_input("Max Pull-out Force (kN)", value=10.0, min_value=0.1, step=0.1)
 
@@ -121,31 +120,20 @@ def plot_fem(res, zone):
     
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
     
-    ax1.plot(x, shear, 'b-', label='Shear')
-    ax1.fill_between(x, shear, color='blue', alpha=0.1)
-    ax1.set_ylabel("Shear (kN)")
-    ax1.set_title(f"Shear Force Diagram (SFD) - {zone}")
-    ax1.grid(True, ls=':')
+    ax1.plot(x, shear, 'b-'); ax1.fill_between(x, shear, color='blue', alpha=0.1)
+    ax1.set_ylabel("Shear (kN)"); ax1.set_title(f"Shear Force Diagram (SFD) - {zone}"); ax1.grid(True, ls=':')
     ax1.axhline(0, color='black', linewidth=0.8)
     
-    ax2.plot(x, moment, 'r-', label='Moment')
-    ax2.fill_between(x, moment, color='red', alpha=0.1)
-    ax2.set_ylabel("Moment (kNm)")
-    ax2.set_title(f"Bending Moment Diagram (BMD) - {zone}")
-    ax2.set_xlabel("Length (m)")
-    ax2.grid(True, ls=':')
+    ax2.plot(x, moment, 'r-'); ax2.fill_between(x, moment, color='red', alpha=0.1)
+    ax2.set_ylabel("Moment (kNm)"); ax2.set_title(f"Bending Moment Diagram (BMD) - {zone}")
+    ax2.set_xlabel("Length (m)"); ax2.grid(True, ls=':')
     ax2.axhline(0, color='black', linewidth=0.8)
     
-    # Annotate Maxima
-    v_max_idx = np.argmax(np.abs(shear))
-    m_max_idx = np.argmax(np.abs(moment))
-    
+    v_max_idx = np.argmax(np.abs(shear)); m_max_idx = np.argmax(np.abs(moment))
     ax1.plot(x[v_max_idx], shear[v_max_idx], 'ro')
     ax1.annotate(f"Vmax={shear[v_max_idx]:.2f}", (x[v_max_idx], shear[v_max_idx]), xytext=(0,10), textcoords='offset points', ha='center', color='red')
-    
     ax2.plot(x[m_max_idx], moment[m_max_idx], 'bo')
     ax2.annotate(f"Mmax={moment[m_max_idx]:.2f}", (x[m_max_idx], moment[m_max_idx]), xytext=(0,10), textcoords='offset points', ha='center', color='blue')
-
     plt.tight_layout()
     return fig
 
@@ -162,7 +150,6 @@ def plot_building_diagram(b, d, r_type):
     ax.set_xlim(-b*0.5, b*1.5); ax.set_ylim(-d*0.3, d*1.5); ax.axis('off')
     return fig
 
-# --- RESTORED ORIGINAL PANEL PLOT FUNCTION ---
 def plot_panel_load(pw, pd, orient, tw):
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.add_patch(patches.Rectangle((0, 0), pw, pd, fill=False, edgecolor='black'))
@@ -209,24 +196,25 @@ if st.button("🚀 Run Analysis"):
         
         rxn = fem['rxn_max']
         mom = fem['max_moment']
-        shr = fem['max_shear'] # Retrieve max shear for report
+        shr = fem['max_shear']
         
-        limit_factor = "Rail"
-        if len(history) > 0:
-            if history[-1]['fail_mode'] == 'Clamp Pull-out': limit_factor = "Clamp"
-            elif history[-1]['fail_mode'] == 'Rail Bending': limit_factor = "Rail"
+        # Get data from the LAST step of the history (which is the solution state)
+        last_step = history[-1] if history else {}
+        limit_mode = last_step.get('limit_mode', '-')
+        util_ratio = last_step.get('max_ratio', 0.0)
         
         results.append({
             "Zone": z['code'], "Description": z['desc'], "Kl": z['kl'],
             "Pressure (kPa)": p_z, "Line Load (kN/m)": w_z, "Max Span (m)": span,
-            "Reaction (kN)": rxn, "M* (kNm)": mom, "Limiting Factor": limit_factor,
+            "Reaction (kN)": rxn, "M* (kNm)": mom, 
+            "Limiting Factor": limit_mode,
+            "Util Ratio": util_ratio, # Display Ratio
             "history": history
         })
         
         current_mag = abs(p_z)
         if worst_res is None or current_mag > max_mag_p:
             max_mag_p = current_mag
-            # --- ADDED 'shear_max' TO FIX KEY ERROR ---
             worst_res = {
                 'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
                 'load': w_z, 'moment': mom, 'reaction': rxn, 'shear_max': shr,
@@ -287,12 +275,15 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
         df_res = pd.DataFrame(res_list)
         df_disp = df_res.drop(columns=['history'], errors='ignore')
         
+        # --- SHOW UTIL RATIO IN TABLE ---
         st.dataframe(
-            df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)", "Limiting Factor"]]
+            df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)", "Limiting Factor", "Util Ratio"]]
             .style.format({
                 "Pressure (kPa)": "{:.3f}", "Line Load (kN/m)": "{:.3f}",
-                "Max Span (m)": "{:.2f}", "M* (kNm)": "{:.3f}", "Reaction (kN)": "{:.2f}"
-            }),
+                "Max Span (m)": "{:.2f}", "M* (kNm)": "{:.3f}", "Reaction (kN)": "{:.2f}",
+                "Util Ratio": "{:.2f}"
+            })
+            .map(lambda v: "color: red; font-weight: bold;" if v > 1.0 else "color: green;", subset=["Util Ratio"]),
             use_container_width=True
         )
 
