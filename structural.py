@@ -68,8 +68,7 @@ def solve_continuous_beam_exact(span_length, num_spans, w_load):
     m_arr = np.array(moment_plot)
     v_arr = np.array(shear_plot)
 
-    # --- FIX IS HERE: Use Absolute Value for Max Reaction Calculation ---
-    # ถ้าไม่ใช้ abs() ค่าที่เป็นลบ (Uplift) จะมีค่าน้อยกว่า Capacity (ที่เป็นบวก) เสมอ ทำให้ Logic ผิด
+    # Use Absolute Value for Max Reaction Calculation (Fix for Uplift/Negative values)
     max_reaction_magnitude = np.max(np.abs(R))
 
     return {
@@ -79,9 +78,9 @@ def solve_continuous_beam_exact(span_length, num_spans, w_load):
         'shear_array': v_arr,
         'x_array': np.array(x_plot),
         'reactions': R,
-        'rxn_edge': np.abs(R[0]), # Send absolute value for display
+        'rxn_edge': np.abs(R[0]),
         'rxn_internal': np.max(np.abs(R[1:-1])) if len(R) > 2 else (np.abs(R[0]) if len(R)==2 else 0),
-        'rxn_max': max_reaction_magnitude # This is the critical fix
+        'rxn_max': max_reaction_magnitude
     }
 
 def optimize_span(Mn, w_load, num_spans, max_span=4.0, clamp_capacity=None):
@@ -91,21 +90,23 @@ def optimize_span(Mn, w_load, num_spans, max_span=4.0, clamp_capacity=None):
     2. Clamp Pull-out Capacity (if provided)
     """
     step = 0.05
-    current_span = 0.5
+    # --- FIXED: Start from 0.10m instead of 0.50m to allow smaller spans ---
+    min_span = 0.10 
+    current_span = min_span
+    
     history = []
     
-    valid_span = 0.5
+    valid_span = min_span
     final_fem = None
     
-    # Initialize first step to prevent crash if loop breaks immediately
-    # Run analysis at min span
-    final_fem = solve_continuous_beam_exact(current_span, num_spans, w_load)
+    # Pre-calculate at min_span to ensure final_fem is not None if even 0.1m fails
+    final_fem = solve_continuous_beam_exact(min_span, num_spans, w_load)
     
     while current_span <= max_span:
         fem = solve_continuous_beam_exact(current_span, num_spans, w_load)
         
         m_star = fem['max_moment']
-        r_star = fem['rxn_max'] # Now this is Magnitude (Positive)
+        r_star = fem['rxn_max'] # Positive Magnitude
         
         # Check 1: Rail
         rail_util = (m_star / Mn) * 100
