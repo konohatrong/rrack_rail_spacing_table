@@ -2,87 +2,108 @@ import numpy as np
 
 def calculate_Mn(breaking_load_kn, test_span_m, safety_factor=1.0):
     """
-    Calculates Nominal Moment Capacity (Mn) from Breaking Load test data.
-    Formula: Mn = (P_break * L_test) / 4  (Assuming point load at center of simple beam)
-    Apply Safety Factor: Mn_design = Mn / SF
+    Calculates Nominal Moment Capacity (Mn).
+    Mn = (P_break * L_test) / 4 / SF
     """
-    # Moment from Point Load on Simple Beam = PL/4
     mn_test = (breaking_load_kn * test_span_m) / 4.0
     return mn_test / safety_factor
 
-def solve_continuous_beam(span_length, num_spans, w_load):
+def solve_continuous_beam_exact(span_length, num_spans, w_load):
     """
-    Simple Finite Element Method (Matrix Stiffness) for continuous beam.
-    Returns:
-      - max_moment (kNm)
-      - max_shear (kN)
-      - reactions (kN array)
-      - shear/moment distribution for plotting
+    Engine: Solves Indeterminate Continuous Beam using Matrix Method (System of Linear Equations).
+    Method: Clapeyron's Three-Moment Theorem for equal spans.
+    
+    Returns exact arrays for x, shear(V), moment(M), and reactions(R).
     """
-    n_nodes = num_spans + 1
-    n_elements = num_spans
-    
-    # Coordinates
-    nodes = np.linspace(0, span_length * num_spans, n_nodes)
-    
-    # Global Stiffness Matrix (K) & Load Vector (F)
-    # Simplified for equal spans, uniform load w
-    # Reaction approximation for continuous beam (Coefficients)
-    # To be accurate, we use a specialized beam solver logic or coefficients.
-    
-    # Using 3-Moment Equation / Coefficients for equal spans (Approximation is faster/stable)
-    # Max Moment (Negative at support) usually wL^2/8 to wL^2/10 depending on spans
-    # Max Reaction usually 1.15 * wL to 1.25 * wL
-    
     L = span_length
     w = w_load
+    n_supports = num_spans + 1
     
-    # Coefficients based on standard beam tables (Continuous beam equal spans)
+    # 1. Solve for Support Moments (M) using Matrix [A][M] = [B]
+    # Equation: M(i-1) + 4M(i) + M(i+1) = -wL^2/2
+    # Boundary conditions: M(0) = 0, M(n) = 0 (Simple supports at ends)
+    
     if num_spans == 1:
-        m_max = (w * L**2) / 8
-        r_max = (w * L) / 2
-        r_dist = [r_max, r_max]
-    elif num_spans == 2:
-        m_max = (w * L**2) / 8  # Support moment
-        r_max = 1.25 * w * L    # Middle support
-        r_edge = 0.375 * w * L
-        r_dist = [r_edge, r_max, r_edge]
-    else: # 3+ spans
-        m_max = 0.107 * w * L**2 # Approx 1/10 for interior support
-        r_max = 1.14 * w * L     # First interior support
-        r_edge = 0.4 * w * L
-        r_mid = 1.1 * w * L
-        r_dist = [r_edge, r_max] + [r_mid]*(num_spans-3) + [r_max, r_edge]
+        M_supports = np.array([0.0, 0.0])
+    else:
+        # Number of internal supports
+        n_internal = num_spans - 1
+        
+        # Build Matrix A
+        A = np.zeros((n_internal, n_internal))
+        for i in range(n_internal):
+            A[i, i] = 4.0
+            if i > 0: A[i, i-1] = 1.0
+            if i < n_internal - 1: A[i, i+1] = 1.0
+            
+        # Build Matrix B
+        B = np.full(n_internal, -0.5 * w * L**2)
+        
+        # Solve for Internal Moments
+        if n_internal > 0:
+            M_internal = np.linalg.solve(A, B)
+            M_supports = np.concatenate(([0], M_internal, [0]))
+        else:
+            M_supports = np.zeros(n_supports)
 
-    # Note: For detailed FEM visualization, we need full matrix solution. 
-    # For this snippet, let's keep the reliable coefficient method for optimization speed,
-    # but generate plotting data manually.
+    # 2. Calculate Reactions (R) from Support Moments
+    # Take moments about each support to find shears
+    R = np.zeros(n_supports)
     
-    # Generate plotting data (x, shear, moment)
-    x_plot = np.linspace(0, num_spans * L, 100 * num_spans)
+    # Calculate Shear forces just to left and right of supports
+    V_right = np.zeros(num_spans) # V at left of span i
+    V_left = np.zeros(num_spans)  # V at right of span i
     
-    # Mock-up curve for visualization (since we used coefficients for design values)
-    # This is just for the graph, ensuring peaks match calculated m_max
-    # (In a real full FEM lib, this would be calculated from K matrix)
-    # ... [Visualization logic omitted for brevity in optimization, 
-    #      but strictly we pass the calculated design values]
+    for i in range(num_spans):
+        # Moment equilibrium on free body of span i
+        # Sum M about right end = 0 -> V_right*L - wL^2/2 + M_left - M_right = 0
+        V_right[i] = (w * L**2 / 2 - M_supports[i] + M_supports[i+1]) / L
+        # Sum Fy = 0
+        V_left[i] = w * L - V_right[i] # Acting downwards relative to support, but let's calc R directly
+        
+    # Assemble Reactions
+    R[0] = V_right[0]
+    R[-1] = V_left[-1]
+    for i in range(1, num_spans):
+        R[i] = V_left[i-1] + V_right[i]
+
+    # 3. Generate Plotting Data (High Resolution)
+    # We slice each span into points
+    points_per_span = 50
+    total_points = points_per_span * num_spans
+    x_plot = []
+    shear_plot = []
+    moment_plot = []
     
+    for i in range(num_spans):
+        x_local = np.linspace(0, L, points_per_span)
+        # Shear V(x) = V_start - w*x
+        v_local = V_right[i] - w * x_local
+        # Moment M(x) = M_start + V_start*x - w*x^2/2
+        m_local = M_supports[i] + V_right[i] * x_local - (w * x_local**2) / 2
+        
+        x_global = x_local + i * L
+        
+        x_plot.extend(x_global)
+        shear_plot.extend(v_local)
+        moment_plot.extend(m_local)
+
     return {
-        'max_moment': m_max,
-        'reactions': np.array(r_dist),
-        'rxn_edge': r_dist[0],
-        'rxn_internal': max(r_dist[1:]) if len(r_dist) > 1 else r_dist[0],
-        'x': x_plot,
-        'shear': np.zeros_like(x_plot), # Placeholder
-        'moment': np.zeros_like(x_plot) # Placeholder
+        'max_moment': np.max(np.abs(moment_plot)), # Use absolute max moment
+        'moment_array': np.array(moment_plot),
+        'shear_array': np.array(shear_plot),
+        'x_array': np.array(x_plot),
+        'reactions': R,
+        'rxn_edge': R[0],
+        'rxn_internal': np.max(R[1:-1]) if len(R) > 2 else (R[0] if len(R)==2 else 0),
+        'rxn_max': np.max(R)
     }
 
 def optimize_span(Mn, w_load, num_spans, max_span=4.0, clamp_capacity=None):
     """
-    Iteratively finds the maximum allowable span.
-    Constraints: 
-      1. Moment <= Mn
-      2. Reaction <= Clamp Capacity (if provided)
+    Optimizes span based on:
+    1. Rail Bending Capacity (Mn)
+    2. Clamp Pull-out Capacity (if provided)
     """
     step = 0.05
     current_span = 0.5
@@ -91,51 +112,60 @@ def optimize_span(Mn, w_load, num_spans, max_span=4.0, clamp_capacity=None):
     valid_span = 0.5
     final_fem = None
     
-    # Loop increase span
+    limit_reached = False
+    
     while current_span <= max_span:
-        fem = solve_continuous_beam(current_span, num_spans, w_load)
+        # Run exact analysis
+        fem = solve_continuous_beam_exact(current_span, num_spans, w_load)
+        
         m_star = fem['max_moment']
-        r_star = np.max(fem['reactions']) # Max reaction (Abs value implied by solver logic)
+        r_star = fem['rxn_max']
         
-        # 1. Check Moment
-        moment_ok = m_star <= Mn
+        # --- Check 1: Rail Capacity ---
+        rail_util = (m_star / Mn) * 100
+        rail_ok = m_star <= Mn
         
-        # 2. Check Clamp (if capacity is set)
+        # --- Check 2: Clamp Capacity ---
+        clamp_util = 0.0
         clamp_ok = True
         if clamp_capacity is not None and clamp_capacity > 0:
+            clamp_util = (r_star / clamp_capacity) * 100
             clamp_ok = r_star <= clamp_capacity
             
-        utilization = (m_star / Mn) * 100
-        
-        # Determine limiting factor
+        # Determine Status
         status = "OK"
-        if not moment_ok: status = "Fail (Moment)"
-        elif not clamp_ok: status = "Fail (Clamp)"
+        failure_mode = "-"
         
+        if not rail_ok:
+            status = "Fail"
+            failure_mode = "Rail Bending"
+        elif not clamp_ok:
+            status = "Fail"
+            failure_mode = "Clamp Pull-out"
+            
+        # Log History
         history.append({
             'span': current_span,
             'm_star': m_star,
             'r_star': r_star,
-            'util': utilization,
-            'status': status
+            'util_rail': rail_util,
+            'util_clamp': clamp_util,
+            'status': status,
+            'fail_mode': failure_mode
         })
         
-        if moment_ok and clamp_ok:
+        if rail_ok and clamp_ok:
             valid_span = current_span
             final_fem = fem
-            # Generate fake plot data for visualization based on valid span
-            # (Simple approximation for plotting only)
-            L = current_span
-            x = np.linspace(0, num_spans * L, 200)
-            # Simple beam approximation for plot shape
-            M = (w_load * x * (L - x % L)) / 2 # Very rough, just to show something
-            final_fem['x'] = x
-            final_fem['moment'] = np.sin(x/L * np.pi) * m_star # Dummy shape scaled to max
-            final_fem['shear'] = np.cos(x/L * np.pi) * np.max(fem['reactions']) # Dummy shape
         else:
-            # Found the limit
-            break
+            limit_reached = True
+            break # Stop immediately when fail
             
         current_span += step
         
+    # If inputs are weird and fail on first step, run analysis on min span to prevent None return
+    if final_fem is None:
+        final_fem = solve_continuous_beam_exact(0.5, num_spans, w_load)
+        valid_span = 0.5
+
     return valid_span, final_fem, history
