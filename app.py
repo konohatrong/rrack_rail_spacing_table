@@ -47,15 +47,12 @@ df_rails = load_rail_data()
 # ==========================================
 # SIDEBAR INPUTS
 # ==========================================
-
-# --- 0. PROJECT INFO ---
 st.sidebar.header("0. Project Details")
 project_name = st.sidebar.text_input("Project Name", "Solar Rooftop Project")
 project_loc = st.sidebar.text_input("Location", "Bangkok, Thailand")
 engineer_name = st.sidebar.text_input("Engineer Name", "-")
 
 st.sidebar.markdown("---")
-
 st.sidebar.header("1. Wind Parameters")
 region = st.sidebar.selectbox("Wind Region", ["A0", "A1", "A2", "A3", "A4", "A5", "B1", "B2", "C", "D", "NZ1", "NZ2", "NZ3", "NZ4"], index=1)
 imp_level = st.sidebar.selectbox("Importance Level (IL)", [1, 2, 3, 4], index=1)
@@ -107,15 +104,54 @@ breaking_load = st.sidebar.number_input("Breaking Load (kN)", def_bk, disabled=d
 test_span = st.sidebar.number_input("Test Span (m)", def_sp, disabled=dis)
 safety_factor = st.sidebar.number_input("Safety Factor", value=1.1, min_value=0.001, step=0.01, format="%.3f")
 
-# --- NEW INPUT: CLAMP CAPACITY ---
-st.sidebar.markdown("**Fixing/Clamp Capacity**")
-clamp_cap = st.sidebar.number_input("Max Clamp Pull-out (kN)", value=10.0, min_value=0.1, step=0.1, help="If unknown, keep high value (e.g., 10).")
+st.sidebar.markdown("---")
+# --- CLAMP CAPACITY ---
+st.sidebar.markdown("**Fixing/Clamp Capacity (Limit State)**")
+clamp_cap = st.sidebar.number_input("Max Pull-out Force (kN)", value=10.0, min_value=0.1, step=0.1)
 
 num_spans = st.sidebar.slider("Spans", 1, 5, 2)
 
 # ==========================================
 # VISUALIZATION FUNCTIONS
 # ==========================================
+def plot_fem(res, zone):
+    # Use exact data from the new engine
+    x = res['x_array']
+    shear = res['shear_array']
+    moment = res['moment_array']
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
+    
+    # Shear Diagram
+    ax1.plot(x, shear, 'b-', label='Shear')
+    ax1.fill_between(x, shear, color='blue', alpha=0.1)
+    ax1.set_ylabel("Shear (kN)")
+    ax1.set_title(f"Shear Force Diagram (SFD) - {zone}")
+    ax1.grid(True, ls=':')
+    ax1.axhline(0, color='black', linewidth=0.8)
+    
+    # Moment Diagram
+    ax2.plot(x, moment, 'r-', label='Moment')
+    ax2.fill_between(x, moment, color='red', alpha=0.1)
+    ax2.set_ylabel("Moment (kNm)")
+    ax2.set_title(f"Bending Moment Diagram (BMD) - {zone}")
+    ax2.set_xlabel("Length (m)")
+    ax2.grid(True, ls=':')
+    ax2.axhline(0, color='black', linewidth=0.8)
+    
+    # Annotate Maxima
+    v_max_idx = np.argmax(np.abs(shear))
+    m_max_idx = np.argmax(np.abs(moment))
+    
+    ax1.plot(x[v_max_idx], shear[v_max_idx], 'ro')
+    ax1.annotate(f"Vmax={shear[v_max_idx]:.2f}", (x[v_max_idx], shear[v_max_idx]), xytext=(0,10), textcoords='offset points', ha='center', color='red')
+    
+    ax2.plot(x[m_max_idx], moment[m_max_idx], 'bo')
+    ax2.annotate(f"Mmax={moment[m_max_idx]:.2f}", (x[m_max_idx], moment[m_max_idx]), xytext=(0,10), textcoords='offset points', ha='center', color='blue')
+
+    plt.tight_layout()
+    return fig
+
 def plot_building_diagram(b, d, r_type):
     fig, ax = plt.subplots(figsize=(5, 3))
     rect = patches.Rectangle((0, 0), b, d, linewidth=2, edgecolor='black', facecolor='#f0f0f0')
@@ -126,9 +162,6 @@ def plot_building_diagram(b, d, r_type):
     ax.text(b/2, d+d*0.35, "Wind 0°", ha='center', color='red')
     ax.arrow(-b*0.3, d/2, b*0.2, 0, head_width=d*0.05, fc='orange', ec='orange')
     ax.text(-b*0.35, d/2, "Wind 90°", ha='center', va='center', rotation=90, color='orange')
-    if "Gable" in r_type:
-        ax.plot([0, b], [d/2, d/2], color='purple', linestyle='-.')
-        ax.text(b*0.02, d/2+d*0.02, "RIDGE", color='purple', fontsize=8)
     ax.set_xlim(-b*0.5, b*1.5); ax.set_ylim(-d*0.3, d*1.5); ax.axis('off')
     return fig
 
@@ -137,29 +170,11 @@ def plot_panel_load(pw, pd, orient, tw):
     ax.add_patch(patches.Rectangle((0, 0), pw, pd, fill=False, edgecolor='black'))
     if orient == 'width':
         ax.axhline(pd*0.25, color='blue', ls='--'); ax.axhline(pd*0.75, color='blue', ls='--')
-        ax.add_patch(patches.Rectangle((0, 0), pw, pd/2, color='red', alpha=0.2))
-        ax.annotate('', xy=(pw+0.1, 0), xytext=(pw+0.1, pd/2), arrowprops=dict(arrowstyle='<->', color='red'))
         ax.text(pw+0.2, pd/4, f"Trib: {tw:.3f}m", color='red', rotation=90, va='center')
     else:
         ax.axvline(pw*0.25, color='blue', ls='--'); ax.axvline(pw*0.75, color='blue', ls='--')
-        ax.add_patch(patches.Rectangle((0, 0), pw/2, pd, color='red', alpha=0.2))
-        ax.annotate('', xy=(0, pd+0.1), xytext=(pw/2, pd+0.1), arrowprops=dict(arrowstyle='<->', color='red'))
         ax.text(pw/4, pd+0.2, f"Trib: {tw:.3f}m", color='red', ha='center')
     ax.set_xlim(-0.2, pw+0.5); ax.set_ylim(-0.2, pd+0.5); ax.axis('off')
-    return fig
-
-def plot_fem(res, zone):
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
-    ax1.plot(res['x'], res['shear'], 'b-'); ax1.fill_between(res['x'], res['shear'], color='blue', alpha=0.1)
-    ax1.set_ylabel("Shear (kN)"); ax1.set_title(f"SFD - {zone}"); ax1.grid(True, ls=':')
-    v_max = np.argmax(np.abs(res['shear'])); ax1.plot(res['x'][v_max], res['shear'][v_max], 'ro')
-    ax1.annotate(f"V*={abs(res['shear'][v_max]):.2f}", xy=(res['x'][v_max], res['shear'][v_max]), xytext=(5,10), textcoords="offset points", color='red', fontweight='bold')
-    
-    ax2.plot(res['x'], res['moment'], 'r-'); ax2.fill_between(res['x'], res['moment'], color='red', alpha=0.1)
-    ax2.set_ylabel("Moment (kNm)"); ax2.set_title(f"BMD - {zone}"); ax2.grid(True, ls=':')
-    m_max = np.argmax(np.abs(res['moment'])); ax2.plot(res['x'][m_max], res['moment'][m_max], 'bo')
-    ax2.annotate(f"M*={abs(res['moment'][m_max]):.2f}", xy=(res['x'][m_max], res['moment'][m_max]), xytext=(5,10), textcoords="offset points", color='blue', fontweight='bold')
-    plt.tight_layout()
     return fig
 
 # ==========================================
@@ -188,27 +203,34 @@ if st.button("🚀 Run Analysis"):
         p_z = wind_load.calculate_wind_pressure(v_des, base_cpe, ka, kc, z['kl'])
         w_z = p_z * trib_width
         
-        # --- PASS CLAMP CAPACITY TO OPTIMIZATION ---
+        # --- NEW ENGINE CALL ---
         span, fem, history = structural.optimize_span(Mn, w_z, num_spans, max_span=4.0, clamp_capacity=clamp_cap)
         
-        rxn = np.abs(fem['reactions'])
-        rxn_edge = fem['rxn_edge']
-        rxn_int = fem['rxn_internal']
-        mom, shr = fem['max_moment'], np.max(np.abs(fem['shear']))
+        rxn = fem['rxn_max']
+        mom = fem['max_moment']
+        
+        # Determine limiting factor for summary table
+        limit_factor = "Rail"
+        if len(history) > 0 and history[-1]['fail_mode'] == 'Clamp Pull-out':
+            limit_factor = "Clamp"
+        elif len(history) > 0 and history[-1]['fail_mode'] == 'Rail Bending':
+            limit_factor = "Rail"
         
         results.append({
             "Zone": z['code'], "Description": z['desc'], "Kl": z['kl'],
             "Pressure (kPa)": p_z, "Line Load (kN/m)": w_z, "Max Span (m)": span,
-            "Reaction (kN)": np.max(rxn), "M* (kNm)": mom, "history": history
+            "Reaction (kN)": rxn, "M* (kNm)": mom, "Limiting Factor": limit_factor,
+            "history": history
         })
         
+        # Logic to find Critical Case (Max load magnitude)
         current_mag = abs(p_z)
         if worst_res is None or current_mag > max_mag_p:
             max_mag_p = current_mag
             worst_res = {
                 'zone': z['code'], 'pressure': p_z, 'span': span, 'fem': fem, 
-                'load': w_z, 'moment': mom, 'shear_max': shr, 
-                'reaction': np.max(rxn), 'rxn_edge': rxn_edge, 'rxn_int': rxn_int
+                'load': w_z, 'moment': mom, 'reaction': rxn,
+                'rxn_edge': fem['rxn_edge'], 'rxn_int': fem['rxn_internal']
             }
 
     st.session_state['results'] = results
@@ -226,112 +248,97 @@ if 'has_run' in st.session_state and st.session_state['has_run']:
     w_dat = st.session_state['wind_data']
     s_dat = st.session_state['struct_data']
 
-    if w_res is None:
-        st.error("Error: Critical case undefined.")
-    else:
-        st.divider(); st.header("📊 Analysis Report Summary")
-        
-        # 1. Verification
-        st.subheader("1. Detailed Input Verification")
-        st.markdown('<div class="calculation-box">', unsafe_allow_html=True)
-        st.markdown(f"**Design Wind Speed ($V_{{des}}$): {v_des:.2f} m/s**")
-        st.markdown(f"- Formula: $V_R \cdot M_d \cdot (M_{{z,cat}} \cdot M_s \cdot M_t)$")
-        st.markdown(f"- Subst: {vr} * {md} * ({mz_cat:.2f} * {ms} * {mt})")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        c_geo1, c_geo2 = st.columns([1, 1])
-        with c_geo1:
-            st.markdown("#### Geometry & Capacity")
-            st.write(f"- **Rail:** {rail_brand} ({rail_model})")
-            st.write(f"- **Rail Capacity (Mn):** {s_dat['Mn']:.3f} kNm")
-            st.write(f"- **Clamp Capacity:** {s_dat['clamp_cap']:.2f} kN") # Show Clamp Cap
-            st.write(f"- **Building:** {b_width}x{b_depth}x{b_height}m")
-        with c_geo2:
-            st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
+    st.divider(); st.header("📊 Analysis Report Summary")
+    
+    # 1. Verification
+    st.subheader("1. Detailed Input Verification")
+    st.markdown('<div class="calculation-box">', unsafe_allow_html=True)
+    st.markdown(f"**Design Wind Speed ($V_{{des}}$): {v_des:.2f} m/s**")
+    st.markdown(f"Formula: $V_R ({vr}) \cdot M_d ({md}) \cdot [M_{{z,cat}} ({mz_cat:.2f}) \cdot M_s ({ms}) \cdot M_t ({mt})]$")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    c_geo1, c_geo2 = st.columns([1, 1])
+    with c_geo1:
+        st.markdown("#### Geometry & Capacity")
+        st.write(f"- **Rail Capacity (Mn):** {s_dat['Mn']:.3f} kNm")
+        st.write(f"- **Clamp Capacity:** {s_dat['clamp_cap']:.2f} kN")
+        st.write(f"- **Roof:** {roof_type} @ {roof_angle}°")
+    with c_geo2:
+        st.pyplot(plot_building_diagram(b_width, b_depth, roof_type))
 
-        st.divider()
+    st.divider()
 
-        # 2. Wind
-        st.subheader("2. Wind Analysis ($C_{p,e}$ Selection)")
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
-        st.markdown("#### External Pressure Coefficient ($C_{p,e}$)")
-        w1, w2 = st.columns(2)
-        with w1:
-            st.write("**Case 1: Wind 0°**")
-            st.write(f"- Cpe: **{w_dat['res0']['cpe']:.2f}**")
-        with w2:
-            st.write("**Case 2: Wind 90°**")
-            st.write(f"- Cpe: **{w_dat['res90']['cpe']:.2f}**")
-            
-        st.warning(f"**Selected Governing Case:** {w_dat['gov_case']}")
-        st.markdown('</div>', unsafe_allow_html=True)
+    # 2. Wind Analysis
+    st.subheader("2. Wind Analysis ($C_{p,e}$)")
+    c_wind1, c_wind2 = st.columns([1, 1])
+    with c_wind1:
+        st.markdown(f"**Governing Case:** {w_dat['gov_case']}")
+        st.write(f"- Cpe (Normal): {w_dat['res0']['cpe']:.2f}")
+        st.write(f"- Cpe (Parallel): {w_dat['res90']['cpe']:.2f}")
+        st.write(f"- **Base Cpe:** {w_dat['base_cpe']:.2f}")
+    with c_wind2:
         st.pyplot(plot_panel_load(panel_w, panel_d, orient_key, w_dat['trib_width']))
 
-        # 3. Table
-        st.divider(); st.subheader("3. Zone Analysis Summary")
-        df_res = pd.DataFrame(res_list)
-        df_disp = df_res.drop(columns=['history'], errors='ignore')
-        
-        st.dataframe(
-            df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)"]]
-            .style.format({
-                "Pressure (kPa)": "{:.3f}",
-                "Line Load (kN/m)": "{:.3f}",
-                "Max Span (m)": "{:.2f}",
-                "M* (kNm)": "{:.3f}",
-                "Reaction (kN)": "{:.2f}"
-            }),
-            use_container_width=True
-        )
+    # 3. Table
+    st.divider(); st.subheader("3. Zone Analysis Summary")
+    df_res = pd.DataFrame(res_list)
+    df_disp = df_res.drop(columns=['history'], errors='ignore')
+    
+    st.dataframe(
+        df_disp[["Zone", "Pressure (kPa)", "Line Load (kN/m)", "Max Span (m)", "M* (kNm)", "Reaction (kN)", "Limiting Factor"]]
+        .style.format({
+            "Pressure (kPa)": "{:.3f}", "Line Load (kN/m)": "{:.3f}",
+            "Max Span (m)": "{:.2f}", "M* (kNm)": "{:.3f}", "Reaction (kN)": "{:.2f}"
+        }),
+        use_container_width=True
+    )
 
-        # 4. Critical
-        st.divider(); st.subheader(f"4. Critical Case Analysis ({w_res['zone']})")
+    # 4. Critical Case
+    st.divider(); st.subheader(f"4. Critical Case Analysis ({w_res['zone']})")
+    c1, c2 = st.columns([1, 2])
+    with c1: 
+        st.markdown("### Design Values")
+        st.metric("Max Span", f"{w_res['span']:.2f} m")
+        st.metric("M* (Moment)", f"{w_res['moment']:.3f} kNm")
+        st.metric("R* (Max Reaction)", f"{w_res['reaction']:.3f} kN")
         
-        c1, c2 = st.columns([1, 2])
-        with c1: 
-            st.markdown("### Design Values")
-            st.metric("Max Span", f"{w_res['span']:.2f} m")
-            st.metric("M*", f"{w_res['moment']:.3f} kNm")
+        if w_res['reaction'] > s_dat['clamp_cap']:
+            st.error(f"⚠️ Reaction > Clamp Cap ({s_dat['clamp_cap']} kN)")
+        elif w_res['moment'] > s_dat['Mn']:
+            st.error(f"⚠️ Moment > Rail Cap ({s_dat['Mn']:.3f} kNm)")
+        else:
+            st.success("✅ Design OK")
             
-            st.markdown("---")
-            st.markdown("### Reaction Forces")
-            st.metric("R* (Max)", f"{w_res['reaction']:.3f} kN")
-            if w_res['reaction'] > s_dat['clamp_cap']:
-                st.error(f"⚠️ Reaction > Capacity ({s_dat['clamp_cap']} kN)")
-            else:
-                st.success(f"✅ Reaction < Capacity ({s_dat['clamp_cap']} kN)")
-            
-        with c2: st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
+    with c2: st.pyplot(plot_fem(w_res['fem'], w_res['zone']))
 
-        # Report Generation
-        st.divider(); st.header("📄 Plain Text & PDF Report")
-        inp_d = {
-            'project_name': project_name, 'project_location': project_loc, 'engineer': engineer_name,
-            'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
-            'ret_period': ret_period, 'vr': vr, 'v_des': v_des, 'md': md, 'ms': ms, 'mt': mt, 'mz_cat': mz_cat, 'tc': tc,
-            'b_width': b_width, 'b_depth': b_depth, 'b_height': b_height, 'roof_type': roof_type, 'roof_angle': roof_angle,
-            'panel_w': panel_w, 'panel_d': panel_d, 'num_spans': num_spans,
-            'clamp_cap': clamp_cap # Pass Clamp Cap to report
-        }
-        w_d = {
-            'cpe_0': w_dat['res0']['cpe'], 'ratio_0': w_dat['r0'], 'cpe_90': w_dat['res90']['cpe'], 'ratio_90': w_dat['r90'],
-            'governing_case': w_dat['gov_case'], 'note': w_dat['note'], 'trib_width': w_dat['trib_width'], 'ka': ka, 'kc': kc, 'cpe_base': w_dat['base_cpe']
-        }
-        
-        rep_text = report.generate_full_report(inp_d, w_d, s_dat, res_list, w_res)
-        
-        clean_proj_name = project_name.strip().replace(" ", "_") if project_name else "Solar_Project"
-        date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-        fname = f"{clean_proj_name}_Report_{date_str}"
+    # Report
+    st.divider(); st.header("📄 Plain Text & PDF Report")
+    inp_d = {
+        'project_name': project_name, 'project_location': project_loc, 'engineer': engineer_name,
+        'rail_brand': rail_brand, 'rail_model': rail_model, 'region': region, 'imp_level': imp_level, 'design_life': design_life,
+        'ret_period': ret_period, 'vr': vr, 'v_des': v_des, 'md': md, 'ms': ms, 'mt': mt, 'mz_cat': mz_cat, 'tc': tc,
+        'b_width': b_width, 'b_depth': b_depth, 'b_height': b_height, 'roof_type': roof_type, 'roof_angle': roof_angle,
+        'panel_w': panel_w, 'panel_d': panel_d, 'num_spans': num_spans, 'clamp_cap': clamp_cap
+    }
+    w_d = {
+        'cpe_0': w_dat['res0']['cpe'], 'ratio_0': w_dat['r0'], 'cpe_90': w_dat['res90']['cpe'], 'ratio_90': w_dat['r90'],
+        'governing_case': w_dat['gov_case'], 'note': w_dat['note'], 'trib_width': w_dat['trib_width'], 'ka': ka, 'kc': kc, 'cpe_base': w_dat['base_cpe']
+    }
+    
+    rep_text = report.generate_full_report(inp_d, w_d, s_dat, res_list, w_res)
+    
+    clean_proj_name = project_name.strip().replace(" ", "_") if project_name else "Solar_Project"
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    fname = f"{clean_proj_name}_Report_{date_str}"
 
-        col_d1, col_d2 = st.columns(2)
-        with col_d1:
-            st.download_button("💾 Download Text Report", rep_text, f"{fname}.txt")
-        with col_d2:
-            try:
-                pdf_bytes = report.create_pdf_report(rep_text)
-                st.download_button("💾 Download PDF Report", pdf_bytes, f"{fname}.pdf", mime="application/pdf")
-            except Exception as e:
-                st.error(f"PDF Gen Error: {e} (Require fpdf2)")
+    c_btn1, c_btn2 = st.columns(2)
+    with c_btn1:
+        st.download_button("💾 Download Text Report", rep_text, f"{fname}.txt")
+    with c_btn2:
+        try:
+            pdf_bytes = report.create_pdf_report(rep_text)
+            st.download_button("💾 Download PDF Report", pdf_bytes, f"{fname}.pdf", mime="application/pdf")
+        except Exception as e:
+            st.error(f"PDF Error: {e}")
 
-        st.code(rep_text, language='text')
+    st.code(rep_text, language='text')
