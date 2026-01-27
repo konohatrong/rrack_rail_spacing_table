@@ -17,7 +17,7 @@ def solve_continuous_beam_exact(span_length, num_spans, w_load):
     w = w_load
     n_supports = num_spans + 1
     
-    # 1. Solve for Support Moments (M) using Matrix [A][M] = [B]
+    # 1. Solve for Support Moments (M)
     if num_spans == 1:
         M_supports = np.array([0.0, 0.0])
     else:
@@ -68,7 +68,7 @@ def solve_continuous_beam_exact(span_length, num_spans, w_load):
     m_arr = np.array(moment_plot)
     v_arr = np.array(shear_plot)
 
-    # Use Absolute Value for Max Reaction Calculation (Fix for Uplift/Negative values)
+    # Use Absolute Value for Max Reaction Calculation
     max_reaction_magnitude = np.max(np.abs(R))
 
     return {
@@ -85,64 +85,65 @@ def solve_continuous_beam_exact(span_length, num_spans, w_load):
 
 def optimize_span(Mn, w_load, num_spans, max_span=4.0, clamp_capacity=None):
     """
-    Optimizes span based on:
-    1. Rail Bending Capacity (Mn)
-    2. Clamp Pull-out Capacity (if provided)
+    Optimizes span based on Utilization Ratio (Demand/Capacity).
+    Target: Ratio <= 1.0
     """
     step = 0.05
-    # --- FIXED: Start from 0.10m instead of 0.50m to allow smaller spans ---
     min_span = 0.10 
     current_span = min_span
     
     history = []
-    
     valid_span = min_span
     final_fem = None
     
-    # Pre-calculate at min_span to ensure final_fem is not None if even 0.1m fails
+    # Pre-calculate at min_span
     final_fem = solve_continuous_beam_exact(min_span, num_spans, w_load)
     
     while current_span <= max_span:
         fem = solve_continuous_beam_exact(current_span, num_spans, w_load)
         
-        m_star = fem['max_moment']
-        r_star = fem['rxn_max'] # Positive Magnitude
+        m_star = fem['max_moment']  # Demand (Rail)
+        r_star = fem['rxn_max']     # Demand (Clamp) - Absolute Magnitude
         
-        # Check 1: Rail
-        rail_util = (m_star / Mn) * 100
-        rail_ok = m_star <= Mn
+        # --- UTILIZATION RATIO CALCULATION (Demand / Capacity) ---
         
-        # Check 2: Clamp
-        clamp_util = 0.0
-        clamp_ok = True
+        # 1. Rail Utilization (M* / Mn)
+        ratio_rail = m_star / Mn
+        
+        # 2. Clamp Utilization (R* / R_cap)
+        ratio_clamp = 0.0
         if clamp_capacity is not None and clamp_capacity > 0:
-            clamp_util = (r_star / clamp_capacity) * 100
-            clamp_ok = r_star <= clamp_capacity
+            ratio_clamp = r_star / clamp_capacity
             
-        status = "OK"
-        fail_mode = "-"
-        if not rail_ok:
-            status = "Fail"
-            fail_mode = "Rail Bending"
-        elif not clamp_ok:
-            status = "Fail"
-            fail_mode = "Clamp Pull-out"
+        # Determine Status
+        is_safe = (ratio_rail <= 1.0) and (ratio_clamp <= 1.0)
+        
+        limit_mode = "Rail" # Default
+        max_ratio = ratio_rail
+        
+        # Identify governing factor
+        if ratio_clamp > ratio_rail:
+            limit_mode = "Clamp"
+            max_ratio = ratio_clamp
+        
+        status = "OK" if is_safe else "Unsafe"
             
         history.append({
             'span': current_span,
             'm_star': m_star,
             'r_star': r_star,
-            'util_rail': rail_util,
-            'util_clamp': clamp_util,
-            'status': status,
-            'fail_mode': fail_mode
+            'ratio_rail': ratio_rail,   # Demand/Capacity
+            'ratio_clamp': ratio_clamp, # Demand/Capacity
+            'max_ratio': max_ratio,     # The governing ratio
+            'limit_mode': limit_mode,
+            'status': status
         })
         
-        if rail_ok and clamp_ok:
+        if is_safe:
             valid_span = current_span
             final_fem = fem
         else:
-            # Limit reached, stop increasing span
+            # If failed, stop increasing span
             break
             
         current_span += step
