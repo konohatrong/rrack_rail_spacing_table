@@ -68,7 +68,6 @@ def solve_continuous_beam_exact(span_length, num_spans, w_load):
     m_arr = np.array(moment_plot)
     v_arr = np.array(shear_plot)
 
-    # Use Absolute Value for Max Reaction Calculation
     max_reaction_magnitude = np.max(np.abs(R))
 
     return {
@@ -132,9 +131,7 @@ def optimize_span(Mn, w_load, num_spans, max_span=4.0, clamp_capacity=None):
             'span': current_span,
             'm_star': m_star,
             'r_star': r_star,
-            'ratio_rail': ratio_rail,   # Demand/Capacity
-            'ratio_clamp': ratio_clamp, # Demand/Capacity
-            'max_ratio': max_ratio,     # The governing ratio
+            'max_ratio': max_ratio,     # The governing ratio (Decimal)
             'limit_mode': limit_mode,
             'status': status
         })
@@ -143,7 +140,6 @@ def optimize_span(Mn, w_load, num_spans, max_span=4.0, clamp_capacity=None):
             valid_span = current_span
             final_fem = fem
         else:
-            # If failed, stop increasing span
             break
             
         current_span += step
