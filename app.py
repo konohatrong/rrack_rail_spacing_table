@@ -114,40 +114,26 @@ num_spans = st.sidebar.slider("Spans", 1, 5, 2)
 # VISUALIZATION FUNCTIONS
 # ==========================================
 def plot_fem(res, zone):
-    # Use exact data from the new engine
     x = res['x_array']
     shear = res['shear_array']
     moment = res['moment_array']
     
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
     
-    # Shear Diagram
-    ax1.plot(x, shear, 'b-', label='Shear')
-    ax1.fill_between(x, shear, color='blue', alpha=0.1)
-    ax1.set_ylabel("Shear (kN)")
-    ax1.set_title(f"Shear Force Diagram (SFD) - {zone}")
-    ax1.grid(True, ls=':')
+    ax1.plot(x, shear, 'b-'); ax1.fill_between(x, shear, color='blue', alpha=0.1)
+    ax1.set_ylabel("Shear (kN)"); ax1.set_title(f"Shear Force Diagram (SFD) - {zone}"); ax1.grid(True, ls=':')
     ax1.axhline(0, color='black', linewidth=0.8)
     
-    # Moment Diagram
-    ax2.plot(x, moment, 'r-', label='Moment')
-    ax2.fill_between(x, moment, color='red', alpha=0.1)
-    ax2.set_ylabel("Moment (kNm)")
-    ax2.set_title(f"Bending Moment Diagram (BMD) - {zone}")
-    ax2.set_xlabel("Length (m)")
-    ax2.grid(True, ls=':')
+    ax2.plot(x, moment, 'r-'); ax2.fill_between(x, moment, color='red', alpha=0.1)
+    ax2.set_ylabel("Moment (kNm)"); ax2.set_title(f"Bending Moment Diagram (BMD) - {zone}")
+    ax2.set_xlabel("Length (m)"); ax2.grid(True, ls=':')
     ax2.axhline(0, color='black', linewidth=0.8)
     
-    # Annotate Maxima
-    v_max_idx = np.argmax(np.abs(shear))
-    m_max_idx = np.argmax(np.abs(moment))
-    
+    v_max_idx = np.argmax(np.abs(shear)); m_max_idx = np.argmax(np.abs(moment))
     ax1.plot(x[v_max_idx], shear[v_max_idx], 'ro')
     ax1.annotate(f"Vmax={shear[v_max_idx]:.2f}", (x[v_max_idx], shear[v_max_idx]), xytext=(0,10), textcoords='offset points', ha='center', color='red')
-    
     ax2.plot(x[m_max_idx], moment[m_max_idx], 'bo')
     ax2.annotate(f"Mmax={moment[m_max_idx]:.2f}", (x[m_max_idx], moment[m_max_idx]), xytext=(0,10), textcoords='offset points', ha='center', color='blue')
-
     plt.tight_layout()
     return fig
 
@@ -164,7 +150,6 @@ def plot_building_diagram(b, d, r_type):
     ax.set_xlim(-b*0.5, b*1.5); ax.set_ylim(-d*0.3, d*1.5); ax.axis('off')
     return fig
 
-# --- RESTORED ORIGINAL PANEL PLOT FUNCTION (RED/BLUE Style) ---
 def plot_panel_load(pw, pd, orient, tw):
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.add_patch(patches.Rectangle((0, 0), pw, pd, fill=False, edgecolor='black'))
@@ -207,28 +192,31 @@ if st.button("🚀 Run Analysis"):
         p_z = wind_load.calculate_wind_pressure(v_des, base_cpe, ka, kc, z['kl'])
         w_z = p_z * trib_width
         
-        # --- NEW ENGINE CALL ---
         span, fem, history = structural.optimize_span(Mn, w_z, num_spans, max_span=4.0, clamp_capacity=clamp_cap)
         
+        # --- FIXED: Use Valid Result Values ---
         rxn = fem['rxn_max']
         mom = fem['max_moment']
         shr = fem['max_shear']
         
-        # Get Util Ratio from last step
-        last_step = history[-1] if history else {}
-        limit_mode = last_step.get('limit_mode', '-')
-        util_ratio = last_step.get('max_ratio', 0.0) # Decimal ratio
+        # --- FIXED: Recalculate Ratio based on Valid Result ---
+        ratio_rail = mom / Mn
+        ratio_clamp = rxn / clamp_cap if clamp_cap > 0 else 0
+        final_ratio = max(ratio_rail, ratio_clamp)
+        
+        limit_mode = "Rail"
+        if ratio_clamp > ratio_rail:
+            limit_mode = "Clamp"
         
         results.append({
             "Zone": z['code'], "Description": z['desc'], "Kl": z['kl'],
             "Pressure (kPa)": p_z, "Line Load (kN/m)": w_z, "Max Span (m)": span,
             "Reaction (kN)": rxn, "M* (kNm)": mom, 
             "Limiting Factor": limit_mode,
-            "Util Ratio": util_ratio,
+            "Util Ratio": final_ratio, # Consistent with display
             "history": history
         })
         
-        # Find Critical Case (Max load magnitude)
         current_mag = abs(p_z)
         if worst_res is None or current_mag > max_mag_p:
             max_mag_p = current_mag
