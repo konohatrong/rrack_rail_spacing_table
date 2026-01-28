@@ -87,6 +87,7 @@ orient_key = 'width' if rail_orient == "Panel Width" else 'depth'
 ka = st.sidebar.number_input("Ka", 1.0)
 kc = st.sidebar.number_input("Kc", 1.0)
 
+# --- 4. STRUCTURAL DATA (UPDATED UI) ---
 st.sidebar.header("4. Structural Data")
 st.sidebar.download_button("📥 Download Template", get_csv_template(), "rail_template.csv", "text/csv")
 rail_opts = ["Custom Input"] + [f"{r['Brand']} - {r['Model']}" for i, r in df_rails.iterrows()]
@@ -96,12 +97,16 @@ if sel_rail != "Custom Input":
     r_data = df_rails[(df_rails['Brand'] == sel_rail.split(" - ")[0]) & (df_rails['Model'] == sel_rail.split(" - ")[1])].iloc[0]
     def_brand, def_model, def_bk, def_sp, dis = r_data['Brand'], r_data['Model'], float(r_data['Breaking Load (kN)']), float(r_data['Test Span (m)']), True
 else:
+    # Default values for custom input
     def_brand, def_model, def_bk, def_sp, dis = "Custom", "-", 5.0, 1.0, False
 
 rail_brand = st.sidebar.text_input("Brand", def_brand, disabled=dis)
 rail_model = st.sidebar.text_input("Model", def_model, disabled=dis)
-breaking_load = st.sidebar.number_input("Breaking Load (kN)", def_bk, disabled=dis)
-test_span = st.sidebar.number_input("Test Span (m)", def_sp, disabled=dis)
+
+# --- FIX: Set min_value to 0.01 to allow low values ---
+breaking_load = st.sidebar.number_input("Breaking Load (kN)", value=def_bk, min_value=0.01, step=0.1, format="%.3f", disabled=dis)
+test_span = st.sidebar.number_input("Test Span (m)", value=def_sp, min_value=0.01, step=0.05, format="%.3f", disabled=dis)
+
 safety_factor = st.sidebar.number_input("Safety Factor", value=1.1, min_value=0.001, step=0.01, format="%.3f")
 
 st.sidebar.markdown("---")
@@ -120,11 +125,13 @@ def plot_fem(res, zone):
     
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
     
-    ax1.plot(x, shear, 'b-'); ax1.fill_between(x, shear, color='blue', alpha=0.1)
+    ax1.plot(x, shear, 'b-', label='Shear')
+    ax1.fill_between(x, shear, color='blue', alpha=0.1)
     ax1.set_ylabel("Shear (kN)"); ax1.set_title(f"Shear Force Diagram (SFD) - {zone}"); ax1.grid(True, ls=':')
     ax1.axhline(0, color='black', linewidth=0.8)
     
-    ax2.plot(x, moment, 'r-'); ax2.fill_between(x, moment, color='red', alpha=0.1)
+    ax2.plot(x, moment, 'r-', label='Moment')
+    ax2.fill_between(x, moment, color='red', alpha=0.1)
     ax2.set_ylabel("Moment (kNm)"); ax2.set_title(f"Bending Moment Diagram (BMD) - {zone}")
     ax2.set_xlabel("Length (m)"); ax2.grid(True, ls=':')
     ax2.axhline(0, color='black', linewidth=0.8)
@@ -194,12 +201,11 @@ if st.button("🚀 Run Analysis"):
         
         span, fem, history = structural.optimize_span(Mn, w_z, num_spans, max_span=4.0, clamp_capacity=clamp_cap)
         
-        # --- FIXED: Use Valid Result Values ---
         rxn = fem['rxn_max']
         mom = fem['max_moment']
         shr = fem['max_shear']
         
-        # --- FIXED: Recalculate Ratio based on Valid Result ---
+        # Recalculate Ratio based on Valid Result
         ratio_rail = mom / Mn
         ratio_clamp = rxn / clamp_cap if clamp_cap > 0 else 0
         final_ratio = max(ratio_rail, ratio_clamp)
@@ -213,7 +219,7 @@ if st.button("🚀 Run Analysis"):
             "Pressure (kPa)": p_z, "Line Load (kN/m)": w_z, "Max Span (m)": span,
             "Reaction (kN)": rxn, "M* (kNm)": mom, 
             "Limiting Factor": limit_mode,
-            "Util Ratio": final_ratio, # Consistent with display
+            "Util Ratio": final_ratio,
             "history": history
         })
         
